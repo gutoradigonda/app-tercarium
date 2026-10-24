@@ -1,0 +1,6 @@
+{
+  "name": "Terçarium ERP",
+  "description": "Sistema integrado de gestão para Vendas, Financeiro e Logística do Terçarium.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
