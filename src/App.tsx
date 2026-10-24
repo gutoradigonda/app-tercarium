@@ -309,6 +309,19 @@ export default function App() {
         const ordersPayload = newOrders.map((o: any) => {
           const clientOrderCode = getClientOrderCode(o);
 
+          // Conversão rigorosa da data DD/MM/AAAA da planilha para o formato do Supabase
+          let parsedDate = undefined;
+          if (o.createdAt && o.createdAt.includes('/')) {
+            const parts = o.createdAt.split('/');
+            if (parts.length === 3) {
+              const year = parts[2].length === 2 ? `20${parts[2]}` : parts[2];
+              const month = parts[1].padStart(2, '0');
+              const day = parts[0].padStart(2, '0');
+              // Fixado às 12:00h UTC para evitar que variações de fuso horário alterem o dia
+              parsedDate = `${year}-${month}-${day}T12:00:00.000Z`;
+            }
+          }
+
           return {
             id: o.id,
             client_id: o.clientId || o.client_id || null,
@@ -320,6 +333,7 @@ export default function App() {
             status: o.status || 'em_producao',
             shipping_option: o.carrier || 'Correios PAC',
             tracking_code: o.trackingCode || '',
+            created_at: parsedDate // Força o Supabase a utilizar a data da planilha
           };
         });
 
