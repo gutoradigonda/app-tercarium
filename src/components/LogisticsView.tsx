@@ -315,6 +315,7 @@ export const LogisticsView: React.FC<LogisticsViewProps> = ({
             <thead>
               <tr className="bg-slate-50/90 border-b border-slate-200 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
                 <th className="py-3 px-4">Pedido</th>
+                <th className="py-3 px-4">Cliente</th>
                 <th className="py-3 px-4">Modelo do Terço</th>
                 <th className="py-3 px-4">Plataforma Frete</th>
                 <th className="py-3 px-4">Transportadora</th>
@@ -326,7 +327,7 @@ export const LogisticsView: React.FC<LogisticsViewProps> = ({
             <tbody className="divide-y divide-slate-100 text-xs">
               {filteredOrders.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-gray-500">
+                  <td colSpan={8} className="py-12 text-center text-gray-500">
                     <div className="flex flex-col items-center justify-center p-6">
                       <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mb-2.5 text-slate-400">
                         <Truck className="w-6 h-6 stroke-[1.5]" />
@@ -388,6 +389,13 @@ export const LogisticsView: React.FC<LogisticsViewProps> = ({
                         </div>
                         <div className="text-[10px] text-slate-500 font-sans font-normal mt-0.5">
                           {order.clientCity || 'Londrina'}/{order.clientState || 'PR'}
+                        </div>
+                      </td>
+
+                      {/* Cliente */}
+                      <td className="py-3.5 px-4 whitespace-nowrap">
+                        <div className="font-medium text-slate-900 max-w-[150px] truncate" title={order.clientName}>
+                          {order.clientName || 'Cliente não informado'}
                         </div>
                       </td>
 
