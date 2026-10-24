@@ -86,8 +86,9 @@ export default function App() {
   const fetchDataFromSupabase = async () => {
     try {
       const { data: clientsData, error: clientsError } = await supabase.from('clientes').select('*');
+      let mappedClients: Client[] = [];
       if (!clientsError && clientsData) {
-        const mappedClients: Client[] = clientsData
+        mappedClients = clientsData
           .filter((c: any) => c && (c.name || c.id))
           .map((c: any) => ({
             id: String(c.id || ''),
@@ -103,7 +104,9 @@ export default function App() {
         setClients(mappedClients);
       }
 
+      // Busca simples e segura na tabela de pedidos (sem joins que podem quebrar a query)
       const { data: ordersData, error: ordersError } = await supabase.from('pedidos').select('*');
+
       if (!ordersError && ordersData) {
         const mappedOrders: Order[] = ordersData.map((o: any) => {
           let dateStr = o.created_at;
@@ -117,14 +120,23 @@ export default function App() {
           }
 
           const clientOrderIdVal = getClientOrderCode(o);
+          
+          // Procura o cliente correspondente pelo ID ou pelo nome para resgatar a cidade e o estado corretos
+          const matchedClient = mappedClients.find(c => c.id === (o.client_id || o.clientId) || (c.name && o.client_name && c.name.toLowerCase().trim() === o.client_name.toLowerCase().trim()));
+
+          const cityVal = matchedClient?.city || o.client_city || o.clientCity || 'Londrina';
+          const stateVal = matchedClient?.state || o.client_state || o.clientState || 'PR';
+          const clientNameVal = matchedClient?.name || o.client_name || 'Cliente';
 
           return {
             ...o,
             id: String(o.id || ''),
-            clientId: String(o.client_id || ''),
-            clientName: String(o.client_name || 'Cliente'),
+            clientId: String(o.client_id || o.clientId || ''),
+            clientName: String(clientNameVal),
             codigoCliente: String(clientOrderIdVal),
             clientOrderId: String(clientOrderIdVal),
+            clientCity: String(cityVal),
+            clientState: String(stateVal),
             items: Array.isArray(o.items) ? o.items : [],
             saleValue: Number(o.total_value) || 0,
             shippingCharged: Number(o.shipping_value) || 0,
