@@ -202,50 +202,44 @@ export default function App() {
     const timestamp = `${now.getDate().toString().padStart(2, '0')}/${(now.getMonth() + 1).toString().padStart(2, '0')} ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
     const isCancelledOrRefunded = newStatus === 'cancelado' || newStatus === 'cancelado_estornado';
 
-    let targetOrderToUpdate: Order | null = null;
+    // 1. Encontra o pedido atual na memória
+    const orderToUpdate = orders.find(o => o.id === orderId);
+    if (!orderToUpdate) return;
 
-    setOrders((prev) =>
-      prev.map((order) => {
-        if (order.id === orderId) {
-          const updatedHistory = [
-            ...(order.history || []),
-            {
-              status: newStatus,
-              timestamp,
-              note: isCancelledOrRefunded
-                ? `Status alterado manualmente para ${newStatus.replace('_', ' ')}`
-                : `Status reativado para ${newStatus.replace('_', ' ')} (cancelamento e estorno revertidos)`,
-            },
-          ];
+    // 2. Prepara o pedido 100% atualizado
+    const updatedHistory = [
+      ...(orderToUpdate.history || []),
+      {
+        status: newStatus,
+        timestamp,
+        note: isCancelledOrRefunded
+          ? `Status alterado manualmente para ${newStatus.replace('_', ' ')}`
+          : `Status reativado para ${newStatus.replace('_', ' ')} (cancelamento e estorno revertidos)`,
+      },
+    ];
 
-          const updated: Order = {
-            ...order,
-            status: newStatus,
-            estornado: isCancelledOrRefunded ? (order.estornado ?? (newStatus === 'cancelado_estornado')) : false,
-            dataEstorno: isCancelledOrRefunded ? order.dataEstorno : undefined,
-            history: updatedHistory,
-          };
+    const updatedOrder: Order = {
+      ...orderToUpdate,
+      status: newStatus,
+      estornado: isCancelledOrRefunded ? (orderToUpdate.estornado ?? (newStatus === 'cancelado_estornado')) : false,
+      dataEstorno: isCancelledOrRefunded ? orderToUpdate.dataEstorno : undefined,
+      history: updatedHistory,
+    };
 
-          targetOrderToUpdate = updated;
-          if (selectedOrder && selectedOrder.id === orderId) setSelectedOrder(updated);
-          if (trackingOrder && trackingOrder.id === orderId) setTrackingOrder(updated);
+    // 3. Atualiza a tela (Estado Visual do React)
+    setOrders(prev => prev.map(o => o.id === orderId ? updatedOrder : o));
+    if (selectedOrder && selectedOrder.id === orderId) setSelectedOrder(updatedOrder);
+    if (trackingOrder && trackingOrder.id === orderId) setTrackingOrder(updatedOrder);
 
-          return updated;
-        }
-        return order;
-      })
-    );
-
-    if (targetOrderToUpdate) {
-      try {
-        await supabase.from('pedidos').update({
-          status: newStatus,
-          estornado: (targetOrderToUpdate as Order).estornado,
-          history: (targetOrderToUpdate as Order).history,
-        }).eq('id', orderId);
-      } catch (err) {
-        console.error('Erro ao atualizar status do pedido no Supabase:', err);
-      }
+    // 4. Salva no banco de dados IMEDIATAMENTE e com os dados certos
+    try {
+      await supabase.from('pedidos').update({
+        status: updatedOrder.status,
+        estornado: updatedOrder.estornado,
+        history: updatedOrder.history,
+      }).eq('id', orderId);
+    } catch (err) {
+      console.error('Erro ao atualizar status do pedido no Supabase:', err);
     }
   };
 
