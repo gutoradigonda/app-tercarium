@@ -58,7 +58,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
   onDeleteProduct,
   userRole,
 }) => {
-  const isViewer = userRole === 'viewer';
+  const isViewer = userRole === 'leitura';
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [subCategoryFilter, setSubCategoryFilter] = useState<string>('all');
@@ -157,7 +157,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
     setModel(p.model);
     setCostPrice(p.costPrice);
     setSalePrice(p.salePrice);
-    setStock(p.stock ?? p.estoque ?? 0);
+    setStock(p.stock ?? (p as any).estoque ?? 0);
     setFormError(null);
     setIsModalOpen(true);
   };
@@ -217,7 +217,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
         stock: Number(stock) || 0,
         stockQuantity: Number(stock) || 0,
         estoque: Number(stock) || 0,
-      };
+      } as any;
       onUpdateProduct(updated);
     } else {
       const newProd: Product = {
@@ -231,7 +231,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
         stock: Number(stock) || 0,
         stockQuantity: Number(stock) || 0,
         estoque: Number(stock) || 0,
-      };
+      } as any;
       onAddProduct(newProd);
     }
 
@@ -507,9 +507,9 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                                   <div className="font-bold text-slate-900 max-w-sm sm:max-w-md">
                                     {p.model}
                                   </div>
-                                  {p.description && (
-                                    <div className="text-[11px] text-slate-500 truncate max-w-sm" title={p.description}>
-                                      {p.description}
+                                  {(p as any).description && (
+                                    <div className="text-[11px] text-slate-500 truncate max-w-sm" title={(p as any).description}>
+                                      {(p as any).description}
                                     </div>
                                   )}
                                 </td>
