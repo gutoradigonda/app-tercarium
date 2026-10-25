@@ -55,7 +55,7 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
   onOpenEditExpenseModal,
   userRole = 'admin',
 }) => {
-  const isReadOnly = userRole === 'viewer';
+  const isReadOnly = userRole === 'leitura';
 
   // Filtros
   const [searchTerm, setSearchTerm] = useState('');
@@ -80,13 +80,13 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
       'Observações'
     ];
     const rows = filteredExpenses.map((exp) => [
-      exp.id,
-      exp.date,
-      exp.description,
-      exp.categoryGroup,
-      exp.category,
+      exp.id || '',
+      exp.date || '',
+      exp.description || '',
+      exp.categoryGroup || '',
+      exp.category || '',
       exp.paymentMethod || 'Pix',
-      exp.amount.toFixed(2),
+      (exp.amount || 0).toFixed(2),
       exp.status === 'pago' ? 'Pago' : 'Pendente',
       exp.notes || ''
     ]);
@@ -112,8 +112,8 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
       // Busca textual
       const term = searchTerm.toLowerCase();
       const matchSearch =
-        exp.description.toLowerCase().includes(term) ||
-        exp.category.toLowerCase().includes(term) ||
+        (exp.description || '').toLowerCase().includes(term) ||
+        (exp.category || '').toLowerCase().includes(term) ||
         (exp.notes && exp.notes.toLowerCase().includes(term)) ||
         (exp.paymentMethod && exp.paymentMethod.toLowerCase().includes(term));
 
@@ -166,9 +166,9 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
         return dateB.localeCompare(dateA);
       });
 
-      const totalAmount = items.reduce((acc, it) => acc + it.amount, 0);
-      const totalPaid = items.filter((it) => it.status === 'pago').reduce((acc, it) => acc + it.amount, 0);
-      const totalPending = items.filter((it) => it.status === 'pendente').reduce((acc, it) => acc + it.amount, 0);
+      const totalAmount = items.reduce((acc, it) => acc + (it.amount || 0), 0);
+      const totalPaid = items.filter((it) => it.status === 'pago').reduce((acc, it) => acc + (it.amount || 0), 0);
+      const totalPending = items.filter((it) => it.status === 'pendente').reduce((acc, it) => acc + (it.amount || 0), 0);
 
       return {
         monthKey: mKey,
@@ -183,19 +183,19 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
 
   // Cálculos consolidados para os Cards do Topo
   const metrics = useMemo(() => {
-    const totalExpenses = filteredExpenses.reduce((acc, e) => acc + e.amount, 0);
+    const totalExpenses = filteredExpenses.reduce((acc, e) => acc + (e.amount || 0), 0);
     const variableCosts = filteredExpenses
       .filter((e) => e.categoryGroup === 'Custos Variáveis')
-      .reduce((acc, e) => acc + e.amount, 0);
+      .reduce((acc, e) => acc + (e.amount || 0), 0);
     const fixedCosts = filteredExpenses
       .filter((e) => e.categoryGroup === 'Custos Fixos')
-      .reduce((acc, e) => acc + e.amount, 0);
+      .reduce((acc, e) => acc + (e.amount || 0), 0);
     const paidAmount = filteredExpenses
       .filter((e) => e.status === 'pago')
-      .reduce((acc, e) => acc + e.amount, 0);
+      .reduce((acc, e) => acc + (e.amount || 0), 0);
     const pendingAmount = filteredExpenses
       .filter((e) => e.status === 'pendente')
-      .reduce((acc, e) => acc + e.amount, 0);
+      .reduce((acc, e) => acc + (e.amount || 0), 0);
 
     return {
       count: filteredExpenses.length,
@@ -537,7 +537,7 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
 
                           {/* Coluna 5: Valor */}
                           <td className="py-3 px-4 text-right font-mono font-bold text-slate-900 whitespace-nowrap">
-                            {formatBRL(expense.amount)}
+                            {formatBRL(expense.amount || 0)}
                           </td>
 
                           {/* Coluna 6: Status */}
@@ -547,8 +547,8 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
                               disabled={isReadOnly}
                               onClick={() => onToggleStatus(expense.id)}
                               className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-all ${
-                                statusConf.bg
-                              } ${statusConf.color} ${statusConf.border} ${
+                                statusConf?.bg || 'bg-slate-100'
+                              } ${statusConf?.color || 'text-slate-800'} ${statusConf?.border || 'border-slate-200'} ${
                                 !isReadOnly ? 'hover:brightness-95 cursor-pointer' : 'cursor-default'
                               }`}
                               title={!isReadOnly ? `Clique para alternar para ${isPaid ? 'Pendente' : 'Pago'}` : undefined}
@@ -558,7 +558,7 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
                               ) : (
                                 <Clock className="w-3 h-3 shrink-0" />
                               )}
-                              <span>{statusConf.label}</span>
+                              <span>{statusConf?.label || expense.status}</span>
                             </button>
                           </td>
 
@@ -622,7 +622,7 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({
             <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-1">
               <p className="font-semibold text-slate-800">{expenseToDelete.description}</p>
               <p className="text-slate-500 font-mono">
-                {formatBRL(expenseToDelete.amount)} · {formatDate(expenseToDelete.date)}
+                {formatBRL(expenseToDelete.amount || 0)} · {formatDate(expenseToDelete.date)}
               </p>
             </div>
 
