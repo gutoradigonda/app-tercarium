@@ -74,7 +74,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   onStatusChange,
   userRole,
 }) => {
-  const isViewer = userRole === 'viewer';
+  const isViewer = userRole === 'leitura';
   // Local state to control the New Order Modal opening
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   // Local state to control the Edit Order Modal
@@ -159,8 +159,6 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   };
 
   // Ação de Alteração / Reversão de Status do Pedido:
-  // Se o novo status NÃO for "Cancelado" ou "Cancelado e Estornado",
-  // garante que as propriedades de cancelamento (ex: estornado: false) sejam explicitamente redefinidas para false.
   const handleStatusChange = (orderId: string, newStatus: OrderStatus) => {
     const isCancelledOrRefunded = newStatus === 'cancelado' || newStatus === 'cancelado_estornado';
     onStatusChange(orderId, newStatus);
@@ -226,7 +224,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
     }
     return () => {
       document.removeEventListener('mousedown', handleClickOutsidePopover);
-    };
+    }
   }, [activeFilterPopover]);
 
   const handleExport = () => {
@@ -249,18 +247,18 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
       'Status Pagamento'
     ];
     const rows = filteredOrders.map((o) => [
-      o.id,
+      o.id || '',
       o.codigoCliente || '',
-      o.createdAt,
-      o.clientName,
+      o.createdAt || '',
+      o.clientName || '',
       o.clientPhone || '',
-      o.clientCity,
-      o.clientState,
-      o.item,
-      o.saleValue.toFixed(2),
+      o.clientCity || '',
+      o.clientState || '',
+      o.item || '',
+      (o.saleValue || 0).toFixed(2),
       (o.shippingCharged || 0).toFixed(2),
-      PAYMENT_LABELS[o.paymentMethod] || o.paymentMethod,
-      STATUS_CONFIG[o.status]?.label || o.status,
+      PAYMENT_LABELS[o.paymentMethod] || o.paymentMethod || '',
+      STATUS_CONFIG[o.status]?.label || o.status || '',
       o.paymentStatus || 'pago'
     ]);
     exportToCSV('pedidos_tercarium', headers, rows);
@@ -387,25 +385,25 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   // Ticket médio por item (Volume de Vendas / Total de Itens Ativos)
   const ticketMedioItens = totalItens > 0 ? totalVendas / totalItens : 0;
 
-  // 3. Filtragem de pesquisa, filtros específicos de colunas e ordenação dinâmica
+  // 3. Filtragem de pesquisa, filtros específicos de colunas e ordenação dinâmica com Travas Anti-Crash
   const filteredOrders = useMemo(() => {
     const list = monthFilteredOrders.filter((order) => {
       const term = searchTerm.toLowerCase();
       const matchesSearch =
         !term ||
-        order.id.toLowerCase().includes(term) ||
-        (order.codigoCliente && order.codigoCliente.toLowerCase().includes(term)) ||
-        order.clientName.toLowerCase().includes(term) ||
-        order.item.toLowerCase().includes(term) ||
-        order.clientCity.toLowerCase().includes(term) ||
-        (order.items && order.items.some((it) => it.model.toLowerCase().includes(term) || it.code.toLowerCase().includes(term)));
+        (order.id || '').toLowerCase().includes(term) ||
+        (order.codigoCliente || '').toLowerCase().includes(term) ||
+        (order.clientName || '').toLowerCase().includes(term) ||
+        (order.item || '').toLowerCase().includes(term) ||
+        (order.clientCity || '').toLowerCase().includes(term) ||
+        (order.items && order.items.some((it) => (it.model || '').toLowerCase().includes(term) || (it.code || '').toLowerCase().includes(term)));
 
       const matchesPayment = paymentFilter === 'all' || order.paymentMethod === paymentFilter;
       const matchesStatus = statusFilter === 'all' || order.status === statusFilter;
 
       // Filtro específico: Pedido Interno
       const matchesInternalId = !filterInternalId.trim() || 
-        order.id.toLowerCase().includes(filterInternalId.trim().toLowerCase());
+        (order.id || '').toLowerCase().includes(filterInternalId.trim().toLowerCase());
 
       // Filtro específico: Pedido Cliente (Código do Cliente)
       const matchesCodigoCliente = !filterCodigoCliente.trim() || 
@@ -413,8 +411,8 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
 
       // Filtro específico: Cliente (busca textual por nome ou cidade)
       const matchesClientName = !filterClientName.trim() || 
-        order.clientName.toLowerCase().includes(filterClientName.trim().toLowerCase()) ||
-        order.clientCity.toLowerCase().includes(filterClientName.trim().toLowerCase());
+        (order.clientName || '').toLowerCase().includes(filterClientName.trim().toLowerCase()) ||
+        (order.clientCity || '').toLowerCase().includes(filterClientName.trim().toLowerCase());
 
       return matchesSearch && matchesPayment && matchesStatus && matchesInternalId && matchesCodigoCliente && matchesClientName;
     });
@@ -450,13 +448,15 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
         };
         comparison = parseDateToTime(a.createdAt) - parseDateToTime(b.createdAt);
       } else if (sortField === 'id') {
-        comparison = a.id.localeCompare(b.id, undefined, { numeric: true });
+        comparison = (a.id || '').localeCompare((b.id || ''), undefined, { numeric: true });
       } else if (sortField === 'codigoCliente') {
         const codA = a.codigoCliente || '';
         const codB = b.codigoCliente || '';
         comparison = codA.localeCompare(codB);
       } else if (sortField === 'clientName') {
-        comparison = a.clientName.localeCompare(b.clientName, 'pt-BR', { sensitivity: 'base' });
+        const nameA = a.clientName || '';
+        const nameB = b.clientName || '';
+        comparison = nameA.localeCompare(nameB, 'pt-BR', { sensitivity: 'base' });
       }
 
       return sortDirection === 'asc' ? comparison : -comparison;
@@ -1308,7 +1308,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                       <td className="py-2.5 px-2.5 sm:px-3 whitespace-nowrap">
                         <div className="font-medium text-slate-900 leading-tight">{order.clientName}</div>
                         <div className="text-[10px] text-slate-500">
-                          {order.clientCity}/{order.clientState}
+                          {order.clientCity || ''}/{order.clientState || ''}
                         </div>
                       </td>
 
@@ -1318,7 +1318,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                           <div className="space-y-0.5">
                             <div className="flex items-center gap-1 flex-wrap">
                               <span className="font-mono text-[10px] font-bold px-1.5 py-0.2 rounded bg-amber-100 text-amber-900 border border-amber-300">
-                                {order.items.reduce((acc, it) => acc + it.quantity, 0)} {order.items.reduce((acc, it) => acc + it.quantity, 0) === 1 ? 'item' : 'itens'}
+                                {order.items.reduce((acc, it) => acc + (it.quantity || 1), 0)} {order.items.reduce((acc, it) => acc + (it.quantity || 1), 0) === 1 ? 'item' : 'itens'}
                               </span>
                               {order.items.length > 1 && (
                                 <span className="text-[10px] text-slate-500 font-medium">
@@ -1328,9 +1328,9 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                             </div>
                             <div 
                               className="font-medium text-slate-900 max-w-xs sm:max-w-sm truncate text-[11px]" 
-                              title={order.items.map(i => `${i.quantity}x ${i.model} (${i.code})`).join('\n')}
+                              title={order.items.map(i => `${i.quantity || 1}x ${i.model || ''} (${i.code || ''})`).join('\n')}
                             >
-                              {order.items.map((i) => `${i.quantity}x ${i.model}`).join(' + ')}
+                              {order.items.map((i) => `${i.quantity || 1}x ${i.model || ''}`).join(' + ')}
                             </div>
                           </div>
                         ) : (
@@ -1348,7 +1348,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                       {/* Valor Total Pago */}
                       <td className="py-2.5 px-2.5 sm:px-3 text-right whitespace-nowrap">
                         <div className="font-mono font-bold text-slate-900 tabular-nums">
-                          {formatBRL(order.saleValue)}
+                          {formatBRL(order.saleValue || 0)}
                         </div>
                         {order.subtotal && order.subtotal !== order.saleValue ? (
                           <div className="text-[10px] font-mono text-slate-400">
@@ -1366,7 +1366,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                             </span>
                           ) : (
                             <span className="font-bold text-slate-900 text-xs">
-                              {formatBRL(order.shippingCharged)}
+                              {formatBRL(order.shippingCharged || 0)}
                             </span>
                           )}
                         </div>
@@ -1380,7 +1380,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                       <td className="py-2.5 px-2.5 sm:px-3 whitespace-nowrap">
                         <div className="space-y-0.5">
                           <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-mono font-medium bg-slate-100 text-slate-800 border border-slate-200">
-                            {PAYMENT_LABELS[order.paymentMethod]}
+                            {PAYMENT_LABELS[order.paymentMethod] || order.paymentMethod}
                           </span>
                           {order.paymentStatus === 'aguardando_diferenca' && (
                             <div className="flex items-center gap-1">
@@ -1403,9 +1403,9 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                       {/* Status Geral */}
                       <td className="py-2.5 px-2.5 sm:px-3 whitespace-nowrap">
                         <span
-                          className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${status.bg} ${status.color} ${status.border}`}
+                          className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${status?.bg || 'bg-slate-100'} ${status?.color || 'text-slate-800'} ${status?.border || 'border-slate-200'}`}
                         >
-                          {status.label}
+                          {status?.label || order.status}
                         </span>
                       </td>
 
@@ -1436,7 +1436,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                                 handleRefundOrder(order);
                               }}
                               className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-bold bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-slate-950 shadow-2xs transition-colors cursor-pointer whitespace-nowrap"
-                              title={`Registrar devolução (estorno) de ${formatBRL(order.saleValue)} para ${order.clientName}`}
+                              title={`Registrar devolução (estorno) de ${formatBRL(order.saleValue || 0)} para ${order.clientName}`}
                             >
                               <RotateCcw className="w-3.5 h-3.5" />
                               <span>Devolver R$</span>
