@@ -49,7 +49,7 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
   products,
   userRole,
 }) => {
-  const isViewer = userRole === 'viewer';
+  const isViewer = userRole === 'leitura';
 
   // Lista local de itens em edição
   const [items, setItems] = useState<OrderItem[]>([]);
