@@ -102,7 +102,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
   userRole,
   initialData,
 }) => {
-  const isViewer = userRole === 'viewer';
+  const isViewer = userRole === 'leitura';
 
   // Cabeçalho inteligente: Data do Pedido e Número do Pedido (formato XXXYYZZ)
   const [orderDate, setOrderDate] = useState<string>(getTodayDateFormatted());
