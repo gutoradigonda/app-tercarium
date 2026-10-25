@@ -18,7 +18,7 @@ export const EditClientModal: React.FC<EditClientModalProps> = ({
   onSaveClient,
   userRole,
 }) => {
-  const isViewer = userRole === 'viewer';
+  const isViewer = userRole === 'leitura';
   const [name, setName] = useState('');
   const [cpf, setCpf] = useState('');
   const [phone, setPhone] = useState('');
@@ -33,7 +33,7 @@ export const EditClientModal: React.FC<EditClientModalProps> = ({
   useEffect(() => {
     if (client) {
       setName(client.name || '');
-      setCpf(client.cpf || '');
+      setCpf(client.cpf || (client as any).document || '');
       setPhone(client.phone || '');
       setEmail(client.email || '');
       setAddress(client.address || '');
