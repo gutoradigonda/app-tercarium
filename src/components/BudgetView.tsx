@@ -24,10 +24,12 @@ import {
   Bookmark,
   FileText,
   ArrowRight,
-  AlertCircle
+  AlertCircle,
+  MapPin,
+  Search
 } from 'lucide-react';
 import { Product, sortProductsHierarchically, Client, SavedBudget, PrefilledFreightData } from '../types/erp';
-import { formatBRL } from '../utils/formatters';
+import { formatBRL, maskCEP } from '../utils/formatters';
 import { GroupedProductSelect } from './GroupedProductSelect';
 import { ConvertBudgetModal } from './ConvertBudgetModal';
 import { supabase } from '../supabase';
@@ -79,6 +81,35 @@ interface BudgetViewProps {
   prefilledFreight?: PrefilledFreightData | null;
   onClearPrefilledFreight?: () => void;
 }
+
+// Interfaces auxiliares para a cotação de frete
+interface TransportadoraOption {
+  nome: string;
+  modalidade: string;
+  preco: number;
+  prazo: string;
+  logo: string;
+  isMelhorEnvio?: boolean;
+}
+
+const CEP_LOCATIONS: Record<string, string> = {
+  '86050-464': 'Londrina, PR',
+  '01001-000': 'São Paulo, SP (Sé)',
+  '20040-002': 'Rio de Janeiro, RJ (Centro)',
+  '30140-071': 'Belo Horizonte, MG (Savassi)',
+  '80010-000': 'Curitiba, PR (Centro)',
+  '70040-010': 'Brasília, DF (Asa Norte)',
+  '40010-000': 'Salvador, BA (Comércio)',
+  '60060-170': 'Fortaleza, CE (Centro)',
+};
+
+const SIMULATED_CARRIERS: TransportadoraOption[] = [
+  { nome: 'Correios', modalidade: 'PAC', preco: 22.40, prazo: '7 dias úteis', logo: '📦', isMelhorEnvio: true },
+  { nome: 'Correios', modalidade: 'SEDEX', preco: 38.90, prazo: '2 dias úteis', logo: '⚡', isMelhorEnvio: true },
+  { nome: 'Loggi', modalidade: 'Loggi Express', preco: 18.50, prazo: '4 dias úteis', logo: '🚚', isMelhorEnvio: true },
+  { nome: 'Jadlog', modalidade: 'Package', preco: 21.90, prazo: '5 dias úteis', logo: '🚛', isMelhorEnvio: true },
+  { nome: 'J&T Express', modalidade: 'Standard', preco: 19.80, prazo: '6 dias úteis', logo: '🚐', isMelhorEnvio: true },
+];
 
 export const BudgetView: React.FC<BudgetViewProps> = ({ 
   products,
@@ -140,6 +171,7 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
   const [toastNotice, setToastNotice] = useState<string | null>(null);
   const [prefilledNotice, setPrefilledNotice] = useState<string | null>(null);
 
+  // CARRINHO DE COMPRAS
   const [items, setItems] = useState<BudgetItem[]>([]);
   const [selectedProductId, setSelectedProductId] = useState<string>(
     mainCatalogProducts[0]?.id || sortedProducts[0]?.id || ''
@@ -176,6 +208,18 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
     return { option: 'Correios PAC', custom: '' };
   };
 
+  // ESTADOS DE FRETE DA COTAÇÃO
+  const [cepDestino, setCepDestino] = useState('');
+  const [cidadeEstado, setCidadeEstado] = useState('');
+  const [peso, setPeso] = useState('200');
+  const [altura, setAltura] = useState('6');
+  const [largura, setLargura] = useState('17');
+  const [comprimento, setComprimento] = useState('17');
+  const [isSearching, setIsSearching] = useState(false);
+  const [hasSearched, setHasSearched] = useState(false);
+  const [carrierResults, setCarrierResults] = useState<TransportadoraOption[]>([]);
+  
+  // Variáveis Finais do Frete
   const [selectedPlatform, setSelectedPlatform] = useState<string>(() => resolvePlatform(prefilledFreight).platform);
   const [customPlatform, setCustomPlatform] = useState<string>(() => resolvePlatform(prefilledFreight).custom);
   const [selectedShippingOption, setSelectedShippingOption] = useState<ShippingOption>(() => resolveCarrier(prefilledFreight).option as ShippingOption);
@@ -190,14 +234,12 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
     return false;
   });
 
-  const [savedFreteCobrado, setSavedFreteCobrado] = useState<string>('28.00');
-
   const [freteCobrado, setFreteCobrado] = useState<string>(() => {
     if (prefilledFreight) {
       const val = typeof prefilledFreight.freteCobrado === 'number' ? prefilledFreight.freteCobrado : (prefilledFreight.precoFinalCliente ?? 28);
       return Math.round(Number(val || 0) * 100 / 100).toFixed(2);
     }
-    return '28.00';
+    return '0.00';
   });
 
   const [freteCotado, setFreteCotado] = useState<string>(() => {
@@ -205,7 +247,7 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
       const val = typeof prefilledFreight.freteCotado === 'number' ? prefilledFreight.freteCotado : (prefilledFreight.freteCobrado ?? 22);
       return Math.round(Number(val || 0) * 100 / 100).toFixed(2);
     }
-    return '22.00';
+    return '0.00';
   });
 
   const [isCopied, setIsCopied] = useState<boolean>(false);
@@ -225,7 +267,6 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
       } else {
         setIsFreteGratis(false);
         setFreteCobrado(cobradoNum.toFixed(2));
-        setSavedFreteCobrado(cobradoNum.toFixed(2));
       }
       setFreteCotado(cotadoNum.toFixed(2));
 
@@ -259,21 +300,74 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
   const subtotalPix = subtotalProducts * 0.95;
   const valorTotalPix = subtotalPix + numShipping;
 
+  const handleCepSearch = (cep: string) => {
+    const unmasked = cep.replace(/\D/g, '');
+    if (unmasked.length === 8) {
+      setCidadeEstado(CEP_LOCATIONS[cep] || 'Localidade Encontrada');
+    } else {
+      setCidadeEstado('');
+    }
+  };
+
+  const handleCompareFretes = () => {
+    if (!cepDestino || cepDestino.replace(/\D/g, '').length < 8) {
+      alert("Por favor, digite um CEP válido com 8 dígitos.");
+      return;
+    }
+    
+    setIsSearching(true);
+    
+    setTimeout(() => {
+      // Simulação de delay de API
+      const simulatedData = SIMULATED_CARRIERS.map(c => ({
+        ...c,
+        preco: c.preco + (Math.random() * 5),
+      })).sort((a, b) => a.preco - b.preco);
+      
+      setCarrierResults(simulatedData);
+      setIsSearching(false);
+      setHasSearched(true);
+    }, 1500);
+  };
+
+  const selectCarrierResult = (carrier: TransportadoraOption) => {
+    let platform = carrier.isMelhorEnvio ? 'Melhor Envio' : 'Outra';
+    setSelectedPlatform(platform);
+    
+    let carrierName = `${carrier.nome} ${carrier.modalidade}`;
+    let option = SHIPPING_OPTIONS.find(o => o.toLowerCase() === carrierName.toLowerCase()) || 'Outra';
+    setSelectedShippingOption(option);
+    if(option === 'Outra') {
+      setCustomShippingOption(carrierName);
+    }
+    
+    setEstimatedDeliveryTime(carrier.prazo);
+    
+    // Calcula Margem de Segurança (Embalagem etc.)
+    const cobradoSugerido = carrier.preco + 4.50; 
+    setFreteCotado(carrier.preco.toFixed(2));
+    setFreteCobrado(cobradoSugerido.toFixed(2));
+    setIsFreteGratis(false);
+    
+    setToastNotice(`Transportadora selecionada e valores preenchidos!`);
+    setTimeout(() => setToastNotice(null), 3000);
+  };
+
   const budgetText = useMemo(() => {
     const greeting = leadName.trim() ? `Olá, ${leadName.trim()}, segue o resumo do seu orçamento:` : `Olá, segue o resumo do seu orçamento:`;
     const itemsLines = items.map((it) => {
       const prefix = it.quantity > 1 ? `${it.quantity}x ` : '';
       const obsText = it.observacao ? ` (${it.observacao})` : '';
-      return `${prefix}${it.name}${obsText} - R$ ${formatCurrencyValue(it.totalPrice)}`;
+      return `${prefix}${it.name}${obsText} R$ ${formatCurrencyValue(it.totalPrice)}`;
     });
 
     const effectiveCarrier = selectedShippingOption === 'Outra' ? (customShippingOption.trim() || 'Outra') : selectedShippingOption;
     const shippingPriceText = isFreteGratis ? 'Frete GRÁTIS' : `R$ ${formatCurrencyValue(numShipping)}`;
-    const shippingLine = `Frete (${effectiveCarrier} - ${estimatedDeliveryTime || 'A combinar'}) - ${shippingPriceText}`;
+    const shippingLine = `Frete (${effectiveCarrier} ${estimatedDeliveryTime || 'A combinar'}) - ${shippingPriceText}`;
     const totalLine = `Valor total: R$ ${formatCurrencyValue(valorTotalNormal)}`;
 
-    const paymentLine1 = `R$ ${formatCurrencyValue(valorTotalNormal)} - Cartão de crédito em até 3x sem juros via link.`;
-    const paymentLine2 = `R$ ${formatCurrencyValue(valorTotalPix)} - Pix, desconto de 5% nos produtos.`;
+    const paymentLine1 = `R$ ${formatCurrencyValue(valorTotalNormal)} Cartão de crédito em até 3x sem juros via link.`;
+    const paymentLine2 = `R$ ${formatCurrencyValue(valorTotalPix)} Pix, desconto de 5% nos produtos.`;
     const productionNote = `PS: Nosso prazo de produção é de até 2 dias úteis. Os envios são realizados às terças e sextas-feiras.`;
 
     const summarySection = [greeting, '', 'Resumo do Pedido', ...itemsLines, shippingLine, totalLine].join('\n');
@@ -425,11 +519,14 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
     setCustomShippingOption('');
     setEstimatedDeliveryTime('7 dias úteis');
     setIsFreteGratis(false);
-    setFreteCobrado('28.00');
-    setSavedFreteCobrado('28.00');
-    setFreteCotado('22.00');
+    setFreteCobrado('0.00');
+    setFreteCotado('0.00');
     setIsSaved(false);
     setPrefilledNotice(null);
+    setCepDestino('');
+    setCidadeEstado('');
+    setHasSearched(false);
+    setCarrierResults([]);
     if (onClearPrefilledFreight) onClearPrefilledFreight();
   };
 
@@ -515,7 +612,7 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
             />
           </div>
 
-          {/* Produtos do Orçamento */}
+          {/* Produtos do Orçamento - NOVO CARRINHO UNIFICADO */}
           <div className="bg-white rounded-xl border border-slate-200/90 shadow-xs p-4 sm:p-5 space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 flex-wrap gap-2">
               <div className="flex items-center gap-2">
@@ -523,8 +620,8 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
                   <ShoppingBag className="w-4 h-4" />
                 </div>
                 <div>
-                  <h3 className="font-semibold text-slate-900 text-sm">Produtos do Orçamento</h3>
-                  <p className="text-[11px] text-slate-500">{items.length} produto(s) · {items.reduce((acc, it) => acc + it.quantity, 0)} unidade(s)</p>
+                  <h3 className="font-semibold text-slate-900 text-sm uppercase tracking-wider text-[11px]">Carrinho de Compras do Pedido</h3>
+                  <p className="text-[11px] text-slate-500">{items.length} modelo(s) · {items.reduce((acc, it) => acc + it.quantity, 0)} peça(s) no total</p>
                 </div>
               </div>
 
@@ -534,57 +631,117 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition-colors cursor-pointer shadow-2xs"
               >
                 <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
-                <span>{showItemPicker ? 'Fechar Seleção' : '+ Adicionar Produto'}</span>
+                <span>{showItemPicker ? 'Fechar Seleção' : '+ Adicionar Item ao Pedido'}</span>
               </button>
             </div>
 
             {showItemPicker && (
-              <div className="p-3.5 bg-amber-50/70 rounded-xl border border-amber-200 space-y-3">
-                <div className="flex flex-col sm:flex-row items-end gap-2.5 flex-wrap">
-                  <div className="flex-1 min-w-[220px] w-full sm:w-auto">
-                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">Produto Principal *</label>
+              <div className="p-3 bg-amber-50/60 rounded-xl border border-amber-200/80 space-y-2.5 animate-in fade-in duration-150">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-amber-900 flex items-center gap-1">
+                    <Package className="w-3.5 h-3.5 text-amber-700" />
+                    Selecionar do Catálogo ou Criar Novo
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowItemPicker(false)}
+                    className="text-[10px] text-slate-400 hover:text-slate-700 cursor-pointer"
+                  >
+                    Fechar
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-end">
+                  <div className="sm:col-span-5">
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      Produto Principal *
+                    </label>
                     <GroupedProductSelect
                       products={mainCatalogProducts}
                       value={selectedProductId}
                       onChange={setSelectedProductId}
-                      formatOptionLabel={(p) => `[${p.code}] ${p.model} — R$ ${formatCurrencyValue(p.salePrice)}`}
-                      className="w-full text-xs h-[38px] py-2 px-3 rounded-lg border border-slate-300 bg-white font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-2xs cursor-pointer"
+                      showCostPrice={false}
+                      className="w-full text-xs py-2 px-3 rounded-lg border border-slate-300 bg-white font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-2xs cursor-pointer"
                     />
                   </div>
 
-                  <div className="w-full sm:w-56 shrink-0">
-                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">Adicional / Extra</label>
+                  <div className="sm:col-span-4">
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1 flex items-center justify-between">
+                      <span>Adicional / Extra</span>
+                      {selectedExtraProductId && (
+                        <span className="text-[10px] text-amber-700 font-mono font-bold">
+                          +{formatBRL(extraProducts.find((x) => x.id === selectedExtraProductId)?.salePrice || 0)}
+                        </span>
+                      )}
+                    </label>
                     <select
                       value={selectedExtraProductId}
                       onChange={(e) => setSelectedExtraProductId(e.target.value)}
-                      className="w-full text-xs h-[38px] py-2 px-2.5 rounded-lg border border-slate-300 bg-white font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-2xs cursor-pointer"
+                      className="w-full text-xs py-2 px-2.5 rounded-lg border border-slate-300 bg-white font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-2xs cursor-pointer"
                     >
                       <option value="">Nenhum (+ R$ 0,00)</option>
                       {extraProducts.map((extra) => (
                         <option key={extra.id} value={extra.id}>
-                          + {extra.model} (+R$ {formatCurrencyValue(extra.salePrice)})
+                          + {extra.model} (+{formatBRL(extra.salePrice)})
                         </option>
                       ))}
                     </select>
                   </div>
 
-                  <div className="flex items-center gap-2 w-full sm:w-auto shrink-0 h-[38px]">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const prod = mainCatalogProducts.find((p) => p.id === selectedProductId) || mainCatalogProducts[0] || sortedProducts[0];
-                        if (prod) {
-                          handleAddItem(prod, addQuantity, selectedExtraProductId, itemObservacao);
-                          setAddQuantity(1);
-                          setSelectedExtraProductId('');
-                          setItemObservacao('');
-                        }
-                      }}
-                      className="flex-1 sm:flex-initial h-[38px] px-3.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition-colors cursor-pointer flex items-center justify-center whitespace-nowrap shadow-2xs"
-                    >
-                      + Incluir
-                    </button>
+                  <div className="sm:col-span-3">
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      Quantidade & Ação
+                    </label>
+                    <div className="flex items-center gap-1.5 h-[38px]">
+                      <div className="flex items-center border border-slate-300 bg-white rounded-lg overflow-hidden shrink-0 h-[38px] shadow-2xs">
+                        <button
+                          type="button"
+                          onClick={() => setAddQuantity((q) => Math.max(1, q - 1))}
+                          className="px-2 h-full flex items-center justify-center text-slate-500 hover:bg-slate-100 cursor-pointer"
+                        >
+                          <Minus className="w-3 h-3" />
+                        </button>
+                        <span className="px-1.5 font-mono font-bold text-xs text-slate-800">
+                          {addQuantity}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setAddQuantity((q) => q + 1)}
+                          className="px-2 h-full flex items-center justify-center text-slate-500 hover:bg-slate-100 cursor-pointer"
+                        >
+                          <Plus className="w-3 h-3" />
+                        </button>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const prod = mainCatalogProducts.find((p) => p.id === selectedProductId) || mainCatalogProducts[0];
+                          if (prod) {
+                            handleAddItem(prod, addQuantity, selectedExtraProductId, itemObservacao);
+                            setAddQuantity(1);
+                          }
+                        }}
+                        className="flex-1 h-[38px] px-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition-colors cursor-pointer flex items-center justify-center whitespace-nowrap shadow-2xs text-center"
+                      >
+                        + Incluir
+                      </button>
+                    </div>
                   </div>
+                </div>
+
+                <div className="pt-0.5">
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1 flex items-center justify-between">
+                    <span>Observação / Personalização (Opcional)</span>
+                    <span className="text-[10px] text-slate-400 font-normal">Instruções para o ateliê artesanal</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={itemObservacao}
+                    onChange={(e) => setItemObservacao(e.target.value)}
+                    placeholder="Ex: Trocar corda preta por azul..."
+                    className="w-full text-xs py-2 px-3 rounded-lg border border-slate-300 bg-white font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-2xs"
+                  />
                 </div>
               </div>
             )}
@@ -597,96 +754,262 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
             ) : (
               <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100">
                 {items.map((item, idx) => (
-                  <div key={item.id} className="p-3.5 bg-white flex items-center justify-between gap-3 text-xs">
-                    <div>
-                      <span className="font-semibold text-slate-900">{item.name}</span>
-                      <span className="text-slate-500 ml-2">R$ {formatCurrencyValue(item.totalPrice)}</span>
+                  <div key={item.id} className="p-3 bg-white hover:bg-slate-50/70 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-mono font-bold text-[10px] px-1.5 py-0.2 rounded bg-slate-100 text-slate-700 border border-slate-200">
+                          {item.code}
+                        </span>
+                        <span className="font-bold text-slate-900 truncate">
+                          {item.name}
+                        </span>
+                      </div>
+                      {item.observacao && (
+                        <p className="text-xs text-slate-500 italic mt-0.5">
+                          Obs: {item.observacao}
+                        </p>
+                      )}
+                      <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-2">
+                        <span>Preço Unitário (Venda): <strong className="font-mono text-slate-800">{formatBRL(item.unitPrice)}</strong></span>
+                      </div>
                     </div>
-                    <button type="button" onClick={() => handleRemoveItem(idx)} className="text-rose-600 hover:bg-rose-50 p-1 rounded cursor-pointer">
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+
+                    <div className="flex items-center gap-3 shrink-0 self-end sm:self-center">
+                      <div className="flex items-center border border-slate-200 bg-slate-50 rounded-lg overflow-hidden">
+                        <button type="button" onClick={() => handleUpdateQuantity(idx, item.quantity - 1)} className="px-1.5 py-1 text-slate-600 hover:bg-slate-200 cursor-pointer">
+                          <Minus className="w-3 h-3" />
+                        </button>
+                        <span className="px-2 font-mono font-bold text-xs text-slate-900">
+                          {item.quantity}
+                        </span>
+                        <button type="button" onClick={() => handleUpdateQuantity(idx, item.quantity + 1)} className="px-1.5 py-1 text-slate-600 hover:bg-slate-200 cursor-pointer">
+                          <Plus className="w-3 h-3" />
+                        </button>
+                      </div>
+
+                      <div className="text-right min-w-[70px]">
+                        <span className="text-[10px] text-slate-400 block">Subtotal</span>
+                        <span className="font-mono font-bold text-slate-900">
+                          {formatBRL(item.totalPrice)}
+                        </span>
+                      </div>
+
+                      <button type="button" onClick={() => handleRemoveItem(idx)} className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer">
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
             )}
           </div>
 
-          {/* Frete e Prazo de Entrega */}
+          {/* NOVO PAINEL DE FRETE (SIMULADOR INTEGRADO + CAMPOS DE FECHAMENTO) */}
           <div className="bg-white rounded-xl border border-slate-200/90 shadow-xs p-4 sm:p-5 space-y-4">
             <div className="flex items-center gap-2 pb-3 border-b border-slate-100">
               <div className="w-8 h-8 rounded-lg bg-indigo-500/10 border border-indigo-500/25 flex items-center justify-center text-indigo-700">
                 <Truck className="w-4 h-4" />
               </div>
               <div>
-                <h3 className="font-semibold text-slate-900 text-sm">Frete e Prazo de Entrega</h3>
-                <p className="text-[11px] text-slate-500">Configure a transportadora, prazo estimado e valor do envio</p>
+                <h3 className="font-semibold text-slate-900 text-sm">Cotação & Frete do Orçamento</h3>
+                <p className="text-[11px] text-slate-500">Compare fretes em tempo real e adicione o valor ao pedido</p>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
-              <div>
-                <label className="block text-slate-700 font-medium text-xs mb-1.5">Plataforma</label>
-                <select
-                  value={selectedPlatform}
-                  onChange={(e) => setSelectedPlatform(e.target.value)}
-                  className="w-full text-xs py-2 px-3 rounded-lg border border-slate-300 bg-white font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-2xs cursor-pointer"
-                >
-                  {SHIPPING_PLATFORMS.map((plat) => (
-                    <option key={plat} value={plat}>{plat}</option>
+            {/* Painel do Simulador */}
+            <div className="bg-slate-50/80 rounded-xl p-4 border border-slate-200 shadow-sm space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1.5 uppercase tracking-wider">CEP de Destino *</label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder="Ex: 86.050-464"
+                      value={cepDestino}
+                      onChange={(e) => {
+                        const masked = maskCEP(e.target.value);
+                        setCepDestino(masked);
+                        if(masked.replace(/\D/g, '').length === 8) {
+                          handleCepSearch(masked);
+                        } else {
+                          setCidadeEstado('');
+                        }
+                      }}
+                      className="w-full pl-3 pr-10 py-2.5 rounded-xl border border-slate-300 font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-2xs text-sm"
+                    />
+                    <Search className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2" />
+                  </div>
+                  {cidadeEstado && <span className="text-[11px] text-emerald-600 font-medium mt-1.5 block flex items-center gap-1"><MapPin className="w-3 h-3" /> {cidadeEstado}</span>}
+                </div>
+                
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1.5 uppercase tracking-wider">Valor dos Itens (R$) *</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 font-mono text-slate-400 text-sm">R$</span>
+                    <input
+                      type="text"
+                      disabled
+                      readOnly
+                      value={subtotalProducts.toFixed(2)}
+                      className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-300 bg-slate-100 font-mono font-bold text-slate-800 text-sm"
+                    />
+                  </div>
+                  <span className="text-[10px] text-amber-700 flex items-center gap-1 mt-1.5 font-medium"><ShieldCheck className="w-3 h-3" /> Valor do seguro atualizado automaticamente</span>
+                </div>
+              </div>
+
+              <div className="pt-2">
+                <span className="flex items-center gap-1.5 text-[11px] font-bold text-amber-800 uppercase tracking-wider mb-2">
+                  <Package className="w-3.5 h-3.5" /> Dimensões e Peso do Pacote
+                </span>
+                <div className="grid grid-cols-4 gap-2">
+                  <div>
+                    <label className="block text-[10px] text-slate-500 mb-1">Peso (g)</label>
+                    <input type="text" value={peso} onChange={(e) => setPeso(e.target.value)} className="w-full py-1.5 px-2 rounded-lg border border-slate-300 font-mono text-xs" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-slate-500 mb-1">Altura (cm)</label>
+                    <input type="text" value={altura} onChange={(e) => setAltura(e.target.value)} className="w-full py-1.5 px-2 rounded-lg border border-slate-300 font-mono text-xs" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-slate-500 mb-1">Larg. (cm)</label>
+                    <input type="text" value={largura} onChange={(e) => setLargura(e.target.value)} className="w-full py-1.5 px-2 rounded-lg border border-slate-300 font-mono text-xs" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-slate-500 mb-1">Comp. (cm)</label>
+                    <input type="text" value={comprimento} onChange={(e) => setComprimento(e.target.value)} className="w-full py-1.5 px-2 rounded-lg border border-slate-300 font-mono text-xs" />
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleCompareFretes}
+                disabled={isSearching}
+                className="w-full mt-2 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-sm flex items-center justify-center gap-2 shadow-sm transition-all cursor-pointer disabled:opacity-70 disabled:cursor-not-allowed"
+              >
+                {isSearching ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Truck className="w-4 h-4" />}
+                {isSearching ? 'Cotando...' : 'Comparar Fretes em Tempo Real'}
+              </button>
+
+              {hasSearched && !isSearching && (
+                <div className="mt-4 space-y-2 animate-in fade-in slide-in-from-top-2">
+                  <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider block mb-2">Selecione uma Opção (Clique para aplicar)</span>
+                  {carrierResults.map((result, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => selectCarrierResult(result)}
+                      className="w-full bg-white p-3 rounded-xl border border-slate-200 hover:border-amber-400 hover:ring-1 hover:ring-amber-400/50 shadow-2xs flex items-center justify-between text-left transition-all cursor-pointer group"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-slate-50 flex items-center justify-center text-lg shadow-2xs border border-slate-100 group-hover:scale-110 transition-transform">
+                          {result.logo}
+                        </div>
+                        <div>
+                          <div className="font-bold text-slate-900 text-xs">{result.nome} {result.modalidade}</div>
+                          <div className="text-[11px] text-slate-500 flex items-center gap-1 mt-0.5">
+                            <Calendar className="w-3 h-3 text-emerald-600" /> {result.prazo}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="font-mono text-lg font-bold text-emerald-700">
+                          {formatBRL(result.preco)}
+                        </div>
+                        <div className="text-[10px] text-slate-400 uppercase tracking-wide font-medium">Custo Final</div>
+                      </div>
+                    </button>
                   ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-slate-700 font-medium text-xs mb-1.5">Transportadora *</label>
-                <select
-                  value={selectedShippingOption}
-                  onChange={(e) => setSelectedShippingOption(e.target.value as ShippingOption)}
-                  className="w-full text-xs py-2 px-3 rounded-lg border border-slate-300 bg-white font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-2xs cursor-pointer"
-                >
-                  {SHIPPING_OPTIONS.map((opt) => (
-                    <option key={opt} value={opt}>{opt}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-slate-700 font-medium text-xs mb-1.5">Prazo Estimado *</label>
-                <input
-                  type="text"
-                  value={estimatedDeliveryTime}
-                  onChange={(e) => setEstimatedDeliveryTime(e.target.value)}
-                  className="w-full text-xs py-2 px-3 rounded-lg border border-slate-300 bg-white font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-2xs"
-                />
-              </div>
-
-              <div>
-                <label className="block text-slate-700 font-medium text-xs mb-1.5">Frete Cobrado (R$) *</label>
-                <input
-                  type="text"
-                  value={freteCobrado}
-                  onChange={(e) => setFreteCobrado(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-mono font-bold text-xs"
-                />
-              </div>
-
-              <div>
-                <label className="block text-slate-700 font-medium text-xs mb-1.5">Frete Cotado (R$) *</label>
-                <input
-                  type="text"
-                  value={freteCotado}
-                  onChange={(e) => setFreteCotado(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-mono font-bold text-xs"
-                />
-              </div>
+                </div>
+              )}
             </div>
 
-            {/* Sobra do Frete */}
-            <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 flex items-center justify-between text-xs">
-              <span className="font-semibold text-slate-800">Sobra do Frete (Cobrado - Cotado)</span>
-              <span className="font-mono font-bold text-emerald-800 bg-emerald-100 px-2.5 py-1 rounded-lg">
-                + R$ {formatCurrencyValue(sobraFrete)}
-              </span>
+            {/* Campos de Fechamento do Frete */}
+            <div className="pt-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+                <div>
+                  <label className="block text-slate-700 font-medium text-xs mb-1.5">Plataforma</label>
+                  <select
+                    value={selectedPlatform}
+                    onChange={(e) => setSelectedPlatform(e.target.value)}
+                    className="w-full text-xs py-2 px-3 rounded-lg border border-slate-300 bg-white font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-2xs cursor-pointer"
+                  >
+                    {SHIPPING_PLATFORMS.map((plat) => (
+                      <option key={plat} value={plat}>{plat}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-slate-700 font-medium text-xs mb-1.5">Transportadora *</label>
+                  <select
+                    value={selectedShippingOption}
+                    onChange={(e) => setSelectedShippingOption(e.target.value as ShippingOption)}
+                    className="w-full text-xs py-2 px-3 rounded-lg border border-slate-300 bg-white font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-2xs cursor-pointer"
+                  >
+                    {SHIPPING_OPTIONS.map((opt) => (
+                      <option key={opt} value={opt}>{opt}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-slate-700 font-medium text-xs mb-1.5 flex justify-between">
+                    Frete Cotado (R$) 
+                    <span className="text-[9px] text-slate-400">Seu Custo</span>
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={freteCotado}
+                    onChange={(e) => setFreteCotado(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-mono font-bold text-xs"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-700 font-medium text-xs mb-1.5 flex justify-between">
+                    Frete Cobrado (R$) 
+                    <span className="text-[9px] text-slate-400">Do Cliente</span>
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    disabled={isFreteGratis}
+                    value={isFreteGratis ? '0.00' : freteCobrado}
+                    onChange={(e) => setFreteCobrado(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-mono font-bold text-xs disabled:bg-slate-100 disabled:text-slate-400"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between mt-3 gap-2 flex-wrap">
+                <label className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border bg-white border-slate-200 cursor-pointer select-none">
+                  <input 
+                    type="checkbox" 
+                    checked={isFreteGratis} 
+                    onChange={(e) => { 
+                      setIsFreteGratis(e.target.checked); 
+                      if(e.target.checked) {
+                        setFreteCobrado('0.00');
+                      }
+                    }} 
+                    className="w-4 h-4 rounded text-amber-600" 
+                  />
+                  <span className="text-xs font-bold text-slate-900">Frete Grátis</span>
+                </label>
+
+                {/* Sobra do Frete */}
+                <div className="bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200 flex items-center gap-2 text-xs">
+                  <span className="font-semibold text-slate-800">Sobra do Frete</span>
+                  <span className={`font-mono font-bold px-2 py-0.5 rounded ${sobraFrete >= 0 ? 'text-emerald-800 bg-emerald-100' : 'text-rose-800 bg-rose-100'}`}>
+                    {sobraFrete >= 0 ? '+' : ''}R$ {formatCurrencyValue(sobraFrete)}
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -737,7 +1060,7 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
             </div>
           </div>
 
-          {/* ORÇAMENTOS SALVOS NA NUVEM (DESIGN ORIGINAL DETALHADO) */}
+          {/* ORÇAMENTOS SALVOS NA NUVEM */}
           <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-3.5 sm:p-4 space-y-3">
             <div className="flex items-center justify-between pb-2.5 border-b border-slate-100 flex-wrap gap-2">
               <div className="flex items-center gap-2">
