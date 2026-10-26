@@ -41,6 +41,18 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
   const statusConfig = STATUS_CONFIG[order.status];
   const { url: whatsappUrl } = buildWhatsAppCustomerNoticeUrl(order);
 
+  // --- RECONSTRUÇÃO DA MATEMÁTICA DO DRE NO MODAL DE DETALHES ---
+  // A Sobra do Frete é a diferença entre o que o cliente pagou de frete e o custo real da transportadora
+  const shippingSurplus = (order.shippingCharged || 0) - (order.shippingPaid || 0);
+
+  // O Lucro Real já considera a Sobra de Frete adicionada ou subtraída.
+  // Em algumas versões antigas do `calculateFinancialMetrics`, o `netProfit` ignorava o frete pago.
+  // Por isso, fazemos a correção no próprio modal para que os números não enganem.
+  const trueNetProfit = metrics.netPrice - metrics.productionCost + shippingSurplus;
+  
+  // A margem real é o (lucro verdadeiro / preço pago pelo cliente que gerou caixa)
+  const trueMarginPercent = order.saleValue > 0 ? (trueNetProfit / order.saleValue) * 100 : 0;
+
   const handleCopy = (text?: string) => {
     if (!text) return;
     navigator.clipboard?.writeText(text);
@@ -205,7 +217,7 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
             )}
           </div>
 
-          {/* DRE Financeiro do Pedido */}
+          {/* DRE Financeiro do Pedido CORRIGIDO */}
           <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-2.5">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2">
               <span className="font-semibold text-slate-900 text-xs flex items-center gap-1.5">
@@ -213,7 +225,7 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                 Demonstrativo de Resultado do Pedido (DRE)
               </span>
               <span className="font-mono text-[11px] text-slate-500">
-                {PAYMENT_LABELS[order.paymentMethod]}
+                {PAYMENT_LABELS[order.paymentMethod] || order.paymentMethod}
               </span>
             </div>
 
@@ -232,7 +244,7 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                 </>
               ) : null}
 
-              <div className="text-slate-600">Fator de Gateway ({PAYMENT_LABELS[order.paymentMethod]}):</div>
+              <div className="text-slate-600">Fator de Gateway ({PAYMENT_LABELS[order.paymentMethod] || order.paymentMethod}):</div>
               <div className="text-right font-mono text-slate-700">
                 {formatFactor(metrics.discountFactor)} ({((1 - metrics.discountFactor) * 100).toFixed(1)}% taxa)
               </div>
@@ -247,21 +259,29 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                 -{formatBRL(metrics.productionCost)}
               </div>
 
-              <div className="text-slate-600">Frete (Cotado {formatBRL(metrics.shippingPaid)} - Cobrado {formatBRL(metrics.shippingCharged)}):</div>
-              <div className="text-right font-mono text-amber-700 tabular-nums">
-                {metrics.shippingCost > 0 ? `-${formatBRL(metrics.shippingCost)} (absorvido)` : 'R$ 0,00'}
+              <div className="text-slate-600 flex flex-col sm:flex-row sm:items-center sm:gap-1">
+                <span>Frete (Cotado {formatBRL(order.shippingPaid || 0)}</span>
+                <span>- Cobrado {formatBRL(order.shippingCharged || 0)}):</span>
+              </div>
+              <div className={`text-right font-mono tabular-nums ${shippingSurplus > 0 ? 'text-emerald-700' : shippingSurplus < 0 ? 'text-rose-600' : 'text-amber-700'}`}>
+                {shippingSurplus > 0 
+                  ? `+${formatBRL(shippingSurplus)}` 
+                  : shippingSurplus < 0
+                  ? `-${formatBRL(Math.abs(shippingSurplus))}`
+                  : 'R$ 0,00'
+                }
               </div>
 
               <div className="col-span-2 pt-2 border-t border-slate-100 flex items-center justify-between">
                 <div>
                   <span className="font-bold text-slate-900 block">Lucro Líquido Real:</span>
                   <span className="text-[11px] text-emerald-700 font-medium font-mono">
-                    Margem líquida: {formatPercent(metrics.marginPercent)}
+                    Margem líquida: {formatPercent(trueMarginPercent)}
                   </span>
                 </div>
                 <div className="text-right">
                   <span className="text-base font-bold font-mono text-emerald-800 tabular-nums bg-emerald-50 px-2.5 py-1 rounded border border-emerald-200">
-                    {formatBRL(metrics.netProfit)}
+                    {formatBRL(trueNetProfit)}
                   </span>
                 </div>
               </div>
