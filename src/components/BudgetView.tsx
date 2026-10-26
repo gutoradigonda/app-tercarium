@@ -3,6 +3,7 @@ import {
   MessageSquare, 
   Copy, 
   Check, 
+  Clock,
   ShoppingBag, 
   Plus, 
   Minus, 
@@ -26,7 +27,10 @@ import {
   ArrowRight,
   AlertCircle,
   MapPin,
-  Search
+  Search,
+  SlidersHorizontal,
+  UserCheck,
+  ArrowLeft
 } from 'lucide-react';
 import { Product, sortProductsHierarchically, Client, SavedBudget, PrefilledFreightData } from '../types/erp';
 import { formatBRL, maskCEP } from '../utils/formatters';
@@ -73,6 +77,19 @@ export const SHIPPING_PLATFORMS = [
   'Outra',
 ] as const;
 
+// Interfaces e Constantes da Cotação de Frete (Importadas do ShippingQuoteView)
+export interface CarrierOption {
+  transportadora: string;
+  plataforma: 'MELHOR ENVIO' | 'FRENET' | string;
+  preco: number;
+  prazo: number;
+  error?: string;
+  [key: string]: any;
+}
+
+const CEP_ORIGEM = "86050464"; // Londrina - PR (Ateliê Terçarium)
+const URL_DO_SERVIDOR_GOOGLE = "https://script.google.com/macros/s/AKfycbyobO3yCc4MaOwab8EXF1tclVRXXxV5xoXZz8ktUVz_kfNCTjQvAKhI6tow6YPF7I962Q/exec";
+
 interface BudgetViewProps {
   products: Product[];
   clients?: Client[];
@@ -81,35 +98,6 @@ interface BudgetViewProps {
   prefilledFreight?: PrefilledFreightData | null;
   onClearPrefilledFreight?: () => void;
 }
-
-// Interfaces auxiliares para a cotação de frete
-interface TransportadoraOption {
-  nome: string;
-  modalidade: string;
-  preco: number;
-  prazo: string;
-  logo: string;
-  isMelhorEnvio?: boolean;
-}
-
-const CEP_LOCATIONS: Record<string, string> = {
-  '86050-464': 'Londrina, PR',
-  '01001-000': 'São Paulo, SP (Sé)',
-  '20040-002': 'Rio de Janeiro, RJ (Centro)',
-  '30140-071': 'Belo Horizonte, MG (Savassi)',
-  '80010-000': 'Curitiba, PR (Centro)',
-  '70040-010': 'Brasília, DF (Asa Norte)',
-  '40010-000': 'Salvador, BA (Comércio)',
-  '60060-170': 'Fortaleza, CE (Centro)',
-};
-
-const SIMULATED_CARRIERS: TransportadoraOption[] = [
-  { nome: 'Correios', modalidade: 'PAC', preco: 22.40, prazo: '7 dias úteis', logo: '📦', isMelhorEnvio: true },
-  { nome: 'Correios', modalidade: 'SEDEX', preco: 38.90, prazo: '2 dias úteis', logo: '⚡', isMelhorEnvio: true },
-  { nome: 'Loggi', modalidade: 'Loggi Express', preco: 18.50, prazo: '4 dias úteis', logo: '🚚', isMelhorEnvio: true },
-  { nome: 'Jadlog', modalidade: 'Package', preco: 21.90, prazo: '5 dias úteis', logo: '🚛', isMelhorEnvio: true },
-  { nome: 'J&T Express', modalidade: 'Standard', preco: 19.80, prazo: '6 dias úteis', logo: '🚐', isMelhorEnvio: true },
-];
 
 export const BudgetView: React.FC<BudgetViewProps> = ({ 
   products,
@@ -181,7 +169,263 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
   const [addQuantity, setAddQuantity] = useState<number>(1);
   const [showItemPicker, setShowItemPicker] = useState<boolean>(false);
 
-  const resolvePlatform = (data?: PrefilledFreightData | null) => {
+  // --- LÓGICA DE FRETE INTEGRADA (do ShippingQuoteView) ---
+  const [activeFreightView, setActiveFreightView] = useState<'formulario' | 'interno' | 'cliente'>('formulario');
+  const [cepDestino, setCepDestino] = useState('');
+  const [cidadeEstado, setCidadeEstado] = useState('');
+  const [peso, setPeso] = useState<number | ''>(200);
+  const [altura, setAltura] = useState<number | ''>(6);
+  const [largura, setLargura] = useState<number | ''>(17);
+  const [comprimento, setComprimento] = useState<number | ''>(17);
+  
+  const [isSearchingFreight, setIsSearchingFreight] = useState(false);
+  const [freightError, setFreightError] = useState<string | null>(null);
+  const [dadosCotacoes, setDadosCotacoes] = useState<CarrierOption[]>([]);
+  const [ordenacao, setOrdenacao] = useState<'barato' | 'rapido'>('barato');
+  const [selectedFreightKey, setSelectedFreightKey] = useState<string | null>(null);
+
+  // Helper: Cálculo da Margem / Preço para o Cliente
+  const getCustomerPrice = (costPrice: number) => {
+    let acrescimo = 1.00;
+    if (costPrice <= 20.00) {
+      acrescimo = 1.80;
+    } else if (costPrice <= 30.00) {
+      acrescimo = 1.50;
+    }
+    return costPrice + acrescimo;
+  };
+
+  // Helper: Janela de entrega estimada para o cliente (+- 1 dia)
+  const getCustomerWindow = (prazo: number) => {
+    let min = prazo - 1;
+    let max = prazo + 1;
+    if (min < 1) {
+      min = 1;
+      max = 2;
+    }
+    return { min, max };
+  };
+
+  const sortedCotacoes = useMemo(() => {
+    const list = [...dadosCotacoes];
+    if (ordenacao === 'barato') {
+      list.sort((a, b) => a.preco - b.preco);
+    } else {
+      list.sort((a, b) => a.prazo - b.prazo);
+    }
+    return list;
+  }, [dadosCotacoes, ordenacao]);
+
+  const minPrice = useMemo(() => {
+    if (dadosCotacoes.length === 0) return 0;
+    return Math.min(...dadosCotacoes.map((c) => c.preco));
+  }, [dadosCotacoes]);
+
+  const minPrazo = useMemo(() => {
+    if (dadosCotacoes.length === 0) return 0;
+    return Math.min(...dadosCotacoes.map((c) => c.prazo));
+  }, [dadosCotacoes]);
+
+  const handleCepSearch = async (val: string) => {
+    const masked = maskCEP(val);
+    setCepDestino(masked);
+
+    const clean = masked.replace(/\D/g, '');
+    if (clean.length === 8) {
+      try {
+        const res = await fetch(`https://viacep.com.br/ws/${clean}/json/`);
+        const data = await res.json();
+        if (!data.erro) {
+          setCidadeEstado(`${data.localidade}-${data.uf}`);
+        } else {
+          setCidadeEstado(`CEP ${clean}`);
+        }
+      } catch {
+        setCidadeEstado(`CEP ${clean}`);
+      }
+    } else {
+      setCidadeEstado('');
+    }
+  };
+
+  const handleCalcularFrete = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+
+    const cleanCep = cepDestino.replace(/\D/g, '');
+    if (cleanCep.length !== 8) {
+      setFreightError('Digite um CEP válido com 8 dígitos numéricos.');
+      return;
+    }
+
+    const numValorDeclarado = subtotalProducts;
+    if (numValorDeclarado <= 0) {
+      setFreightError('Adicione itens ao carrinho para obter o Valor dos Itens obrigatório.');
+      return;
+    }
+
+    const numPeso = typeof peso === 'number' ? peso : parseFloat(String(peso)) || 200;
+    const numAltura = typeof altura === 'number' ? altura : parseFloat(String(altura)) || 6;
+    const numLargura = typeof largura === 'number' ? largura : parseFloat(String(largura)) || 17;
+    const numComprimento = typeof comprimento === 'number' ? comprimento : parseFloat(String(comprimento)) || 17;
+
+    setFreightError(null);
+    setIsSearchingFreight(true);
+
+    let cidadeAtual = cidadeEstado;
+    if (!cidadeAtual) {
+      try {
+        const viaCepRes = await fetch(`https://viacep.com.br/ws/${cleanCep}/json/`);
+        const viaCepData = await viaCepRes.json();
+        if (!viaCepData.erro) {
+          cidadeAtual = `${viaCepData.localidade}-${viaCepData.uf}`;
+          setCidadeEstado(cidadeAtual);
+        } else {
+          cidadeAtual = `CEP ${cleanCep}`;
+          setCidadeEstado(cidadeAtual);
+        }
+      } catch {
+        cidadeAtual = `CEP ${cleanCep}`;
+        setCidadeEstado(cidadeAtual);
+      }
+    }
+
+    const payload = {
+      from: { postal_code: CEP_ORIGEM },
+      to: { postal_code: cleanCep },
+      package: {
+        weight: numPeso / 1000,
+        width: numLargura,
+        height: numAltura,
+        length: numComprimento,
+      },
+      options: {
+        insurance_value: numValorDeclarado,
+        receipt: false,
+        own_hand: false,
+      },
+    };
+
+    try {
+      const response = await fetch(URL_DO_SERVIDOR_GOOGLE, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json();
+
+      if (data.error) {
+        setFreightError(`Falha no cálculo: ${data.error}`);
+        setIsSearchingFreight(false);
+        return;
+      }
+
+      if (!Array.isArray(data)) {
+        setFreightError('Resposta inesperada da central de fretes. Tente novamente.');
+        setIsSearchingFreight(false);
+        return;
+      }
+
+      const cotacoesProcessadas: CarrierOption[] = [];
+
+      data.forEach((opcao: any) => {
+        const transportadora = String(opcao.transportadora || '').toUpperCase();
+        const plataforma = String(opcao.plataforma || '');
+
+        const isCorreiosPAC = transportadora.includes("CORREIOS") && transportadora.includes("PAC");
+        const isCorreiosSedex = transportadora.includes("CORREIOS") && transportadora.includes("SEDEX");
+        const isLoggi = transportadora.includes("LOGGI");
+
+        let preco = parseFloat(opcao.preco) || 0;
+        const prazo = parseInt(opcao.prazo, 10) || 0;
+
+        if (plataforma === "FRENET") {
+          if (isCorreiosPAC || isCorreiosSedex) {
+            preco += 1.10;
+          }
+          if (isCorreiosPAC || isCorreiosSedex || isLoggi) {
+            cotacoesProcessadas.push({
+              ...opcao,
+              preco,
+              prazo,
+              transportadora: opcao.transportadora,
+              plataforma,
+            });
+          }
+        } else {
+          const isLoggiExpress = isLoggi && transportadora.includes("EXPRESS");
+          const isLoggiPonto = isLoggi && transportadora.includes("PONTO");
+          const isJTStandard = (transportadora.includes("J&T") || transportadora.includes("JET")) && transportadora.includes("STANDARD");
+
+          if (isCorreiosPAC || isCorreiosSedex || isLoggiExpress || isLoggiPonto || isJTStandard) {
+            cotacoesProcessadas.push({
+              ...opcao,
+              preco,
+              prazo,
+              transportadora: opcao.transportadora,
+              plataforma,
+            });
+          }
+        }
+      });
+
+      setDadosCotacoes(cotacoesProcessadas);
+      setIsSearchingFreight(false);
+      setActiveFreightView('cliente'); // Já abre direto na visão do cliente como na Imagem 2
+    } catch (err: any) {
+      console.error('Erro na cotação:', err);
+      setFreightError('Erro ao conectar com o servidor de cotação. Verifique a conexão e tente novamente.');
+      setIsSearchingFreight(false);
+    }
+  };
+
+  const selectCarrierResult = (carrier: CarrierOption) => {
+    // 1. Normaliza Plataforma
+    let plataformaSelecionada = 'Melhor Envio';
+    const platLow = (carrier.plataforma || '').toLowerCase();
+    if (platLow.includes('frenet')) plataformaSelecionada = 'Frenet';
+    else if (platLow.includes('superfrete') || platLow.includes('super frete')) plataformaSelecionada = 'SuperFrete';
+    else if (platLow.includes('correios')) plataformaSelecionada = 'Contrato Correios';
+    else if (platLow.includes('melhor envio') || platLow.includes('melhor')) plataformaSelecionada = 'Melhor Envio';
+    else if (carrier.plataforma) plataformaSelecionada = carrier.plataforma;
+
+    setSelectedPlatform(plataformaSelecionada);
+    if(plataformaSelecionada !== 'Melhor Envio' && plataformaSelecionada !== 'Frenet' && plataformaSelecionada !== 'SuperFrete' && plataformaSelecionada !== 'Contrato Correios') {
+       setSelectedPlatform('Outra');
+       setCustomPlatform(plataformaSelecionada);
+    }
+    
+    // 2. Normaliza Transportadora
+    let transportadoraSelecionada = 'Correios PAC';
+    const transpUp = (carrier.transportadora || '').toUpperCase();
+    if (transpUp.includes('SEDEX')) transportadoraSelecionada = 'Correios SEDEX';
+    else if (transpUp.includes('PAC')) transportadoraSelecionada = 'Correios PAC';
+    else if (transpUp.includes('JADLOG')) transportadoraSelecionada = 'Jadlog';
+    else if (transpUp.includes('LOGGI')) transportadoraSelecionada = 'Loggi';
+    else if (transpUp.includes('J&T') || transpUp.includes('JET')) transportadoraSelecionada = 'Transportadora J&T Express';
+    else if (carrier.transportadora) transportadoraSelecionada = carrier.transportadora;
+
+    setSelectedShippingOption(transportadoraSelecionada as ShippingOption);
+    if(SHIPPING_OPTIONS.indexOf(transportadoraSelecionada as ShippingOption) === -1) {
+       setSelectedShippingOption('Outra');
+       setCustomShippingOption(transportadoraSelecionada);
+    }
+    
+    const { min, max } = getCustomerWindow(carrier.prazo);
+    setEstimatedDeliveryTime(`${min} a ${max} dias úteis`);
+    
+    // Preenche Valores
+    const precoFinalCliente = getCustomerPrice(carrier.preco);
+    setFreteCotado(carrier.preco.toFixed(2));
+    setFreteCobrado(precoFinalCliente.toFixed(2));
+    setIsFreteGratis(false);
+    
+    setToastNotice(`Transportadora ${carrier.transportadora} aplicada ao orçamento!`);
+    setTimeout(() => setToastNotice(null), 3000);
+  };
+
+  // --- FIM LÓGICA FRETE INTEGRADA ---
+
+  const resolvePlatformOrig = (data?: PrefilledFreightData | null) => {
     const plat = data?.plataformaSelecionada || data?.plataforma || '';
     if (plat) {
       const pLower = plat.toLowerCase();
@@ -194,7 +438,7 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
     return { platform: 'Melhor Envio', custom: '' };
   };
 
-  const resolveCarrier = (data?: PrefilledFreightData | null) => {
+  const resolveCarrierOrig = (data?: PrefilledFreightData | null) => {
     const carrierName = data?.transportadoraSelecionada || data?.transportadora || '';
     if (carrierName) {
       const lower = carrierName.toLowerCase();
@@ -207,23 +451,12 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
     }
     return { option: 'Correios PAC', custom: '' };
   };
-
-  // ESTADOS DE FRETE DA COTAÇÃO
-  const [cepDestino, setCepDestino] = useState('');
-  const [cidadeEstado, setCidadeEstado] = useState('');
-  const [peso, setPeso] = useState('200');
-  const [altura, setAltura] = useState('6');
-  const [largura, setLargura] = useState('17');
-  const [comprimento, setComprimento] = useState('17');
-  const [isSearching, setIsSearching] = useState(false);
-  const [hasSearched, setHasSearched] = useState(false);
-  const [carrierResults, setCarrierResults] = useState<TransportadoraOption[]>([]);
   
   // Variáveis Finais do Frete
-  const [selectedPlatform, setSelectedPlatform] = useState<string>(() => resolvePlatform(prefilledFreight).platform);
-  const [customPlatform, setCustomPlatform] = useState<string>(() => resolvePlatform(prefilledFreight).custom);
-  const [selectedShippingOption, setSelectedShippingOption] = useState<ShippingOption>(() => resolveCarrier(prefilledFreight).option as ShippingOption);
-  const [customShippingOption, setCustomShippingOption] = useState<string>(() => resolveCarrier(prefilledFreight).custom);
+  const [selectedPlatform, setSelectedPlatform] = useState<string>(() => resolvePlatformOrig(prefilledFreight).platform);
+  const [customPlatform, setCustomPlatform] = useState<string>(() => resolvePlatformOrig(prefilledFreight).custom);
+  const [selectedShippingOption, setSelectedShippingOption] = useState<ShippingOption>(() => resolveCarrierOrig(prefilledFreight).option as ShippingOption);
+  const [customShippingOption, setCustomShippingOption] = useState<string>(() => resolveCarrierOrig(prefilledFreight).custom);
   const [estimatedDeliveryTime, setEstimatedDeliveryTime] = useState<string>(() => prefilledFreight?.prazoTexto || '7 dias úteis');
 
   const [isFreteGratis, setIsFreteGratis] = useState<boolean>(() => {
@@ -272,11 +505,11 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
 
       if (prefilledFreight.prazoTexto) setEstimatedDeliveryTime(prefilledFreight.prazoTexto);
 
-      const platResolved = resolvePlatform(prefilledFreight);
+      const platResolved = resolvePlatformOrig(prefilledFreight);
       setSelectedPlatform(platResolved.platform);
       setCustomPlatform(platResolved.custom);
 
-      const carrierResolved = resolveCarrier(prefilledFreight);
+      const carrierResolved = resolveCarrierOrig(prefilledFreight);
       setSelectedShippingOption(carrierResolved.option as ShippingOption);
       setCustomShippingOption(carrierResolved.custom);
 
@@ -300,69 +533,21 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
   const subtotalPix = subtotalProducts * 0.95;
   const valorTotalPix = subtotalPix + numShipping;
 
-  const handleCepSearch = (cep: string) => {
-    const unmasked = cep.replace(/\D/g, '');
-    if (unmasked.length === 8) {
-      setCidadeEstado(CEP_LOCATIONS[cep] || 'Localidade Encontrada');
-    } else {
-      setCidadeEstado('');
-    }
-  };
-
-  const handleCompareFretes = () => {
-    if (!cepDestino || cepDestino.replace(/\D/g, '').length < 8) {
-      alert("Por favor, digite um CEP válido com 8 dígitos.");
-      return;
-    }
-    
-    setIsSearching(true);
-    
-    setTimeout(() => {
-      // Simulação de delay de API
-      const simulatedData = SIMULATED_CARRIERS.map(c => ({
-        ...c,
-        preco: c.preco + (Math.random() * 5),
-      })).sort((a, b) => a.preco - b.preco);
-      
-      setCarrierResults(simulatedData);
-      setIsSearching(false);
-      setHasSearched(true);
-    }, 1500);
-  };
-
-  const selectCarrierResult = (carrier: TransportadoraOption) => {
-    let platform = carrier.isMelhorEnvio ? 'Melhor Envio' : 'Outra';
-    setSelectedPlatform(platform);
-    
-    let carrierName = `${carrier.nome} ${carrier.modalidade}`;
-    let option = SHIPPING_OPTIONS.find(o => o.toLowerCase() === carrierName.toLowerCase()) || 'Outra';
-    setSelectedShippingOption(option);
-    if(option === 'Outra') {
-      setCustomShippingOption(carrierName);
-    }
-    
-    setEstimatedDeliveryTime(carrier.prazo);
-    
-    // Calcula Margem de Segurança (Embalagem etc.)
-    const cobradoSugerido = carrier.preco + 4.50; 
-    setFreteCotado(carrier.preco.toFixed(2));
-    setFreteCobrado(cobradoSugerido.toFixed(2));
-    setIsFreteGratis(false);
-    
-    setToastNotice(`Transportadora selecionada e valores preenchidos!`);
-    setTimeout(() => setToastNotice(null), 3000);
-  };
 
   const budgetText = useMemo(() => {
     const greeting = leadName.trim() ? `Olá, ${leadName.trim()}, segue o resumo do seu orçamento:` : `Olá, segue o resumo do seu orçamento:`;
     
+    // TEXTO DOS ITENS MELHORADO AQUI:
     const itemsLines = items.map((it) => {
       const prefix = `${it.quantity}x `;
       const obsText = it.observacao ? ` (${it.observacao})` : '';
       
+      // Se for mais de 1 unidade, mostra o valor unitário e o total
       if (it.quantity > 1) {
         return `${prefix}${it.name}${obsText} (R$ ${formatCurrencyValue(it.unitPrice)}/un) = R$ ${formatCurrencyValue(it.totalPrice)}`;
       }
+      
+      // Se for apenas 1 unidade, mostra normal
       return `${prefix}${it.name}${obsText} = R$ ${formatCurrencyValue(it.totalPrice)}`;
     });
 
@@ -530,9 +715,15 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
     setPrefilledNotice(null);
     setCepDestino('');
     setCidadeEstado('');
-    setHasSearched(false);
-    setCarrierResults([]);
+    setDadosCotacoes([]);
+    setActiveFreightView('formulario');
     if (onClearPrefilledFreight) onClearPrefilledFreight();
+  };
+
+  const handleNovoCalculo = () => {
+    setActiveFreightView('formulario');
+    setDadosCotacoes([]);
+    setFreightError(null);
   };
 
   const whatsappTime = useMemo(() => {
@@ -559,7 +750,7 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
             Gerador de Orçamento
           </h2>
           <p className="text-xs sm:text-sm text-slate-300 max-w-2xl">
-            Monte orçamentos em segundos com produtos do catálogo, selecione a transportadora e copie a mensagem formatada para enviar direto ao cliente pelo WhatsApp.
+            Monte orçamentos em segundos com produtos do catálogo, cote e selecione a transportadora e copie a mensagem formatada para enviar direto ao cliente pelo WhatsApp.
           </p>
         </div>
 
@@ -754,7 +945,7 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
             {items.length === 0 ? (
               <div className="py-8 px-4 text-center text-slate-500 bg-slate-50/70 rounded-xl border border-dashed border-slate-200">
                 <ShoppingBag className="w-6 h-6 mx-auto mb-2 text-slate-300" />
-                <p className="text-xs font-medium text-slate-600">Nenhum item adicionado. Clique no botão acima para incluir produtos.</p>
+                <p className="text-xs font-medium text-slate-600">Nenhum item adicionado ao orçamento.</p>
               </div>
             ) : (
               <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100">
@@ -809,129 +1000,319 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
             )}
           </div>
 
-          {/* NOVO PAINEL DE FRETE (SIMULADOR INTEGRADO + CAMPOS DE FECHAMENTO) */}
+          {/* PAINEL DE FRETE INTEGRADO (SIMULADOR DA TELA DE COTAÇÃO) */}
           <div className="bg-white rounded-xl border border-slate-200/90 shadow-xs p-4 sm:p-5 space-y-4">
-            <div className="flex items-center gap-2 pb-3 border-b border-slate-100">
-              <div className="w-8 h-8 rounded-lg bg-indigo-500/10 border border-indigo-500/25 flex items-center justify-center text-indigo-700">
-                <Truck className="w-4 h-4" />
-              </div>
-              <div>
-                <h3 className="font-semibold text-slate-900 text-sm">Cotação & Frete do Orçamento</h3>
-                <p className="text-[11px] text-slate-500">Compare fretes em tempo real e adicione o valor ao pedido</p>
-              </div>
-            </div>
-
-            {/* Painel do Simulador */}
-            <div className="bg-slate-50/80 rounded-xl p-4 border border-slate-200 shadow-sm space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-indigo-500/10 border border-indigo-500/25 flex items-center justify-center text-indigo-700">
+                  <Truck className="w-4 h-4" />
+                </div>
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1.5 uppercase tracking-wider">CEP de Destino *</label>
-                  <div className="relative">
-                    <input
-                      type="text"
-                      placeholder="Ex: 86.050-464"
-                      value={cepDestino}
-                      onChange={(e) => {
-                        const masked = maskCEP(e.target.value);
-                        setCepDestino(masked);
-                        if(masked.replace(/\D/g, '').length === 8) {
-                          handleCepSearch(masked);
-                        } else {
-                          setCidadeEstado('');
-                        }
-                      }}
-                      className="w-full pl-3 pr-10 py-2.5 rounded-xl border border-slate-300 font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-2xs text-sm"
-                    />
-                    <Search className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2" />
-                  </div>
-                  {cidadeEstado && <span className="text-[11px] text-emerald-600 font-medium mt-1.5 block flex items-center gap-1"><MapPin className="w-3 h-3" /> {cidadeEstado}</span>}
-                </div>
-                
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1.5 uppercase tracking-wider">Valor dos Itens (R$) *</label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 font-mono text-slate-400 text-sm">R$</span>
-                    <input
-                      type="text"
-                      disabled
-                      readOnly
-                      value={subtotalProducts.toFixed(2)}
-                      className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-300 bg-slate-100 font-mono font-bold text-slate-800 text-sm"
-                    />
-                  </div>
-                  <span className="text-[10px] text-amber-700 flex items-center gap-1 mt-1.5 font-medium"><ShieldCheck className="w-3 h-3" /> Valor do seguro atualizado automaticamente</span>
+                  <h3 className="font-semibold text-slate-900 text-sm">Cotação de Frete & Logística</h3>
+                  <p className="text-[11px] text-slate-500">Consulte valores reais via API Melhor Envio/Frenet</p>
                 </div>
               </div>
-
-              <div className="pt-2">
-                <span className="flex items-center gap-1.5 text-[11px] font-bold text-amber-800 uppercase tracking-wider mb-2">
-                  <Package className="w-3.5 h-3.5" /> Dimensões e Peso do Pacote
-                </span>
-                <div className="grid grid-cols-4 gap-2">
-                  <div>
-                    <label className="block text-[10px] text-slate-500 mb-1">Peso (g)</label>
-                    <input type="text" value={peso} onChange={(e) => setPeso(e.target.value)} className="w-full py-1.5 px-2 rounded-lg border border-slate-300 font-mono text-xs" />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] text-slate-500 mb-1">Altura (cm)</label>
-                    <input type="text" value={altura} onChange={(e) => setAltura(e.target.value)} className="w-full py-1.5 px-2 rounded-lg border border-slate-300 font-mono text-xs" />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] text-slate-500 mb-1">Larg. (cm)</label>
-                    <input type="text" value={largura} onChange={(e) => setLargura(e.target.value)} className="w-full py-1.5 px-2 rounded-lg border border-slate-300 font-mono text-xs" />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] text-slate-500 mb-1">Comp. (cm)</label>
-                    <input type="text" value={comprimento} onChange={(e) => setComprimento(e.target.value)} className="w-full py-1.5 px-2 rounded-lg border border-slate-300 font-mono text-xs" />
-                  </div>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={handleCompareFretes}
-                disabled={isSearching}
-                className="w-full mt-2 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-sm flex items-center justify-center gap-2 shadow-sm transition-all cursor-pointer disabled:opacity-70 disabled:cursor-not-allowed"
-              >
-                {isSearching ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Truck className="w-4 h-4" />}
-                {isSearching ? 'Cotando...' : 'Comparar Fretes em Tempo Real'}
-              </button>
-
-              {hasSearched && !isSearching && (
-                <div className="mt-4 space-y-2 animate-in fade-in slide-in-from-top-2">
-                  <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider block mb-2">Selecione uma Opção (Clique para aplicar)</span>
-                  {carrierResults.map((result, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => selectCarrierResult(result)}
-                      className="w-full bg-white p-3 rounded-xl border border-slate-200 hover:border-amber-400 hover:ring-1 hover:ring-amber-400/50 shadow-2xs flex items-center justify-between text-left transition-all cursor-pointer group"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-lg bg-slate-50 flex items-center justify-center text-lg shadow-2xs border border-slate-100 group-hover:scale-110 transition-transform">
-                          {result.logo}
-                        </div>
-                        <div>
-                          <div className="font-bold text-slate-900 text-xs">{result.nome} {result.modalidade}</div>
-                          <div className="text-[11px] text-slate-500 flex items-center gap-1 mt-0.5">
-                            <Calendar className="w-3 h-3 text-emerald-600" /> {result.prazo}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <div className="font-mono text-lg font-bold text-emerald-700">
-                          {formatBRL(result.preco)}
-                        </div>
-                        <div className="text-[10px] text-slate-400 uppercase tracking-wide font-medium">Custo Final</div>
-                      </div>
-                    </button>
-                  ))}
+              
+              {/* Abas Internas da Cotação (se já buscou) */}
+              {dadosCotacoes.length > 0 && (
+                <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-lg">
+                  <button
+                    type="button"
+                    onClick={() => setActiveFreightView('interno')}
+                    className={`px-3 py-1.5 rounded-md text-[10px] font-bold transition-colors cursor-pointer flex items-center gap-1 ${
+                      activeFreightView === 'interno'
+                        ? 'bg-white text-slate-900 shadow-sm border border-slate-200'
+                        : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    Custos (Interno)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveFreightView('cliente')}
+                    className={`px-3 py-1.5 rounded-md text-[10px] font-bold transition-colors cursor-pointer flex items-center gap-1 ${
+                      activeFreightView === 'cliente'
+                        ? 'bg-amber-500 text-slate-950 shadow-sm border border-amber-600'
+                        : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    Visão Cliente
+                  </button>
                 </div>
               )}
             </div>
 
-            {/* Campos de Fechamento do Frete */}
-            <div className="pt-2">
+            {freightError && (
+              <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 flex items-center gap-2.5 text-xs font-medium">
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>{freightError}</span>
+              </div>
+            )}
+
+            {/* FORMULÁRIO DE PESQUISA DE FRETE */}
+            {activeFreightView === 'formulario' && (
+              <form onSubmit={handleCalcularFrete} className="bg-slate-50/80 rounded-xl p-4 border border-slate-200 space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1.5 uppercase tracking-wider">CEP de Destino *</label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        placeholder="Ex: 86.050-464"
+                        value={cepDestino}
+                        onChange={(e) => handleCepSearch(e.target.value)}
+                        className="w-full pl-3 pr-10 py-2.5 rounded-xl border border-slate-300 font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-2xs text-sm"
+                      />
+                      <Search className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2" />
+                    </div>
+                    {cidadeEstado && <span className="text-[11px] text-emerald-600 font-medium mt-1.5 block flex items-center gap-1"><MapPin className="w-3 h-3" /> {cidadeEstado}</span>}
+                  </div>
+                  
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1.5 uppercase tracking-wider">Valor dos Itens (Seguro) *</label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 font-mono text-slate-400 text-sm">R$</span>
+                      <input
+                        type="text"
+                        disabled
+                        readOnly
+                        value={subtotalProducts.toFixed(2)}
+                        className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-300 bg-slate-100 font-mono font-bold text-slate-800 text-sm"
+                      />
+                    </div>
+                    <span className="text-[10px] text-amber-700 flex items-center gap-1 mt-1.5 font-medium"><ShieldCheck className="w-3 h-3" /> Valor lido do carrinho automaticamente</span>
+                  </div>
+                </div>
+
+                <div className="pt-2">
+                  <span className="flex items-center gap-1.5 text-[11px] font-bold text-slate-800 uppercase tracking-wider mb-2 border-b border-slate-200 pb-1">
+                    <Package className="w-3.5 h-3.5 text-slate-500" /> Dimensões e Peso do Pacote
+                  </span>
+                  <div className="grid grid-cols-4 gap-2">
+                    <div>
+                      <label className="block text-[10px] text-slate-500 mb-1">Peso (g)</label>
+                      <input type="number" min="10" required value={peso} onChange={(e) => setPeso(e.target.value === '' ? '' : parseFloat(e.target.value))} className="w-full py-1.5 px-2 rounded-lg border border-slate-300 font-mono text-xs" />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-slate-500 mb-1">Altura (cm)</label>
+                      <input type="number" min="2" required value={altura} onChange={(e) => setAltura(e.target.value === '' ? '' : parseFloat(e.target.value))} className="w-full py-1.5 px-2 rounded-lg border border-slate-300 font-mono text-xs" />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-slate-500 mb-1">Larg. (cm)</label>
+                      <input type="number" min="11" required value={largura} onChange={(e) => setLargura(e.target.value === '' ? '' : parseFloat(e.target.value))} className="w-full py-1.5 px-2 rounded-lg border border-slate-300 font-mono text-xs" />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-slate-500 mb-1">Comp. (cm)</label>
+                      <input type="number" min="16" required value={comprimento} onChange={(e) => setComprimento(e.target.value === '' ? '' : parseFloat(e.target.value))} className="w-full py-1.5 px-2 rounded-lg border border-slate-300 font-mono text-xs" />
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isSearchingFreight}
+                  className="w-full mt-2 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-sm flex items-center justify-center gap-2 shadow-sm transition-all cursor-pointer disabled:opacity-70 disabled:cursor-not-allowed"
+                >
+                  {isSearchingFreight ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Truck className="w-4 h-4 stroke-[2.5]" />}
+                  {isSearchingFreight ? 'Consultando Transportadoras...' : 'Comparar Fretes na API'}
+                </button>
+              </form>
+            )}
+
+            {/* TABELA DE COTAÇÃO - VISÃO INTERNA */}
+            {activeFreightView === 'interno' && !isSearchingFreight && (
+              <div className="space-y-4 animate-in fade-in duration-150">
+                <div className="flex items-center justify-between text-xs bg-slate-50 p-2 rounded-lg border border-slate-200">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-slate-800" />
+                    <span className="font-semibold text-slate-800">Custo Base (Sem margem)</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-slate-600">
+                    <SlidersHorizontal className="w-3.5 h-3.5" />
+                    <select
+                      value={ordenacao}
+                      onChange={(e) => setOrdenacao(e.target.value as 'barato' | 'rapido')}
+                      className="bg-transparent font-semibold text-slate-800 focus:outline-none cursor-pointer"
+                    >
+                      <option value="barato">Mais Barato Primeiro</option>
+                      <option value="rapido">Mais Rápido Primeiro</option>
+                    </select>
+                  </div>
+                </div>
+                
+                <div className="border border-slate-200 rounded-xl overflow-hidden shadow-xs">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-slate-900 text-white border-b border-slate-950 text-[10px] font-semibold uppercase tracking-wider">
+                          <th className="py-2.5 px-3 w-28 text-amber-400">Parceiro</th>
+                          <th className="py-2.5 px-3 text-slate-200">Transportadora</th>
+                          <th className="py-2.5 px-3 w-28 text-slate-200">Prazo</th>
+                          <th className="py-2.5 px-3 text-right w-32 text-emerald-400">Custo Real</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 text-xs">
+                        {sortedCotacoes.map((item, idx) => {
+                          const isBestPrice = item.preco === minPrice;
+                          const isFrenet = item.plataforma.toUpperCase() === 'FRENET';
+                          
+                          return (
+                            <tr key={`int-${idx}`} className={`hover:bg-slate-50 ${isBestPrice ? 'bg-emerald-50/20' : ''}`}>
+                              <td className="py-2 px-3 whitespace-nowrap">
+                                <span className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded border uppercase ${
+                                  isFrenet ? 'bg-sky-50 text-sky-800 border-sky-200' : 'bg-amber-50 text-amber-900 border-amber-300'
+                                }`}>
+                                  {item.plataforma}
+                                </span>
+                              </td>
+                              <td className="py-2 px-3 whitespace-nowrap font-semibold text-slate-800">
+                                {item.transportadora} {isBestPrice && <span className="ml-1 text-[9px] bg-emerald-100 text-emerald-800 px-1 py-0.5 rounded">Mais Barato</span>}
+                              </td>
+                              <td className="py-2 px-3 whitespace-nowrap text-slate-600">
+                                {item.prazo} dias
+                              </td>
+                              <td className="py-2 px-3 text-right font-mono font-bold text-emerald-700 whitespace-nowrap">
+                                {formatBRL(item.preco)}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleNovoCalculo}
+                  className="w-full py-2 text-xs font-semibold text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded-lg"
+                >
+                  Fazer nova consulta
+                </button>
+              </div>
+            )}
+
+            {/* TABELA DE COTAÇÃO - VISÃO DO CLIENTE (CLONE DA IMAGEM 2) */}
+            {activeFreightView === 'cliente' && !isSearchingFreight && (
+              <div className="space-y-4 animate-in fade-in duration-150">
+                <div className="flex items-center justify-between text-xs bg-amber-50 p-2 rounded-lg border border-amber-200">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-amber-600" />
+                    <span className="font-semibold text-amber-900">Valores para Apresentar ao Cliente (Com Margem)</span>
+                  </div>
+                </div>
+
+                <div className="border border-slate-200 rounded-xl overflow-hidden shadow-xs">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-[#1e293b] text-white border-b border-[#0f172a] text-[10px] font-semibold uppercase tracking-wider">
+                          <th className="py-2.5 px-3 w-10 text-center text-amber-400">Sel.</th>
+                          <th className="py-2.5 px-3 w-28 text-amber-400">Parceiro</th>
+                          <th className="py-2.5 px-3 text-slate-200">Transportadora & Serviço</th>
+                          <th className="py-2.5 px-3 w-32 text-slate-200">Prazo Estimado</th>
+                          <th className="py-2.5 px-3 w-36 text-slate-400">Informações Extra</th>
+                          <th className="py-2.5 px-3 text-right w-36 text-emerald-400">Valor p/ Cliente</th>
+                          <th className="py-2.5 px-3 text-center w-36 text-slate-300">Ação</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 text-xs bg-white">
+                        {sortedCotacoes.map((item, idx) => {
+                          const precoFinalCliente = getCustomerPrice(item.preco);
+                          const { min, max } = getCustomerWindow(item.prazo);
+                          const acrescimo = precoFinalCliente - item.preco;
+                          const isBestPrice = item.preco === minPrice;
+                          const isFastest = item.prazo === minPrazo;
+                          const isFrenet = item.plataforma.toUpperCase() === 'FRENET';
+                          const rowKey = `cot-${idx}`;
+                          const isSelected = selectedFreightKey === rowKey;
+
+                          return (
+                            <tr
+                              key={rowKey}
+                              onClick={() => setSelectedFreightKey(rowKey)}
+                              className={`transition-colors cursor-pointer group hover:bg-slate-50/80 ${
+                                isSelected ? 'bg-amber-50/70 border-l-4 border-l-amber-500' : isBestPrice ? 'bg-emerald-50/25' : ''
+                              }`}
+                            >
+                              <td className="py-3 px-3 text-center whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                                <input
+                                  type="radio"
+                                  name="selected_freight"
+                                  checked={isSelected}
+                                  onChange={() => setSelectedFreightKey(rowKey)}
+                                  className="w-4 h-4 text-amber-600 focus:ring-amber-500 cursor-pointer accent-amber-500"
+                                />
+                              </td>
+                              
+                              <td className="py-3 px-3 whitespace-nowrap">
+                                <span className={`text-[9px] font-mono font-bold px-2 py-0.5 rounded border uppercase tracking-wider ${
+                                  isFrenet ? 'bg-sky-50 text-sky-800 border-sky-200' : 'bg-amber-50 text-amber-900 border-amber-300'
+                                }`}>
+                                  {item.plataforma}
+                                </span>
+                              </td>
+
+                              <td className="py-3 px-3 whitespace-nowrap">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <Truck className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                                  <span className="font-semibold text-slate-900">{item.transportadora}</span>
+                                  {isBestPrice && <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">Mais Barato</span>}
+                                  {isFastest && !isBestPrice && <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-100 text-blue-800 border border-blue-300">Mais Rápido</span>}
+                                </div>
+                              </td>
+
+                              <td className="py-3 px-3 whitespace-nowrap">
+                                <div className="flex items-center gap-1 text-slate-700 font-medium text-[11px]">
+                                  <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                  <span>{min} a {max} dias úteis</span>
+                                </div>
+                              </td>
+
+                              <td className="py-3 px-3 whitespace-nowrap">
+                                <span className="text-[10px] font-mono text-slate-400">
+                                  Margem: +{formatBRL(acrescimo)}
+                                </span>
+                              </td>
+
+                              <td className="py-3 px-3 text-right whitespace-nowrap">
+                                <span className="text-sm font-bold font-mono text-emerald-700 tabular-nums">
+                                  {formatBRL(precoFinalCliente)}
+                                </span>
+                              </td>
+
+                              <td className="py-3 px-3 text-center whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedFreightKey(rowKey);
+                                    selectCarrierResult(item);
+                                  }}
+                                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 transition-colors cursor-pointer shadow-2xs whitespace-nowrap"
+                                >
+                                  <Sparkles className="w-3 h-3" />
+                                  <span>Usar no Orçamento</span>
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+                
+                <button
+                  type="button"
+                  onClick={handleNovoCalculo}
+                  className="w-full py-2 text-xs font-semibold text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded-lg"
+                >
+                  Refazer Cotação
+                </button>
+              </div>
+            )}
+
+            {/* CAMPOS DE FECHAMENTO DO FRETE (Os que preenchem e mostram no Zap) */}
+            <div className="pt-4 border-t border-slate-200">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
                 <div>
                   <label className="block text-slate-700 font-medium text-xs mb-1.5">Plataforma</label>
@@ -970,7 +1351,7 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
                     min="0"
                     value={freteCotado}
                     onChange={(e) => setFreteCotado(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-mono font-bold text-xs"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-mono font-bold text-xs focus:outline-none focus:ring-2 focus:ring-amber-500"
                   />
                 </div>
 
@@ -986,7 +1367,7 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
                     disabled={isFreteGratis}
                     value={isFreteGratis ? '0.00' : freteCobrado}
                     onChange={(e) => setFreteCobrado(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-mono font-bold text-xs disabled:bg-slate-100 disabled:text-slate-400"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-mono font-bold text-xs focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:bg-slate-100 disabled:text-slate-400"
                   />
                 </div>
               </div>
@@ -1002,9 +1383,9 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
                         setFreteCobrado('0.00');
                       }
                     }} 
-                    className="w-4 h-4 rounded text-amber-600" 
+                    className="w-4 h-4 rounded text-amber-600 border-slate-300" 
                   />
-                  <span className="text-xs font-bold text-slate-900">Frete Grátis</span>
+                  <span className="text-xs font-bold text-slate-900">Frete Grátis para o Cliente</span>
                 </label>
 
                 {/* Sobra do Frete */}
