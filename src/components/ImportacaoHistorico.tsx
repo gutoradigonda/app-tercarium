@@ -12,16 +12,11 @@ import {
   Calendar, 
   Users, 
   ShoppingBag, 
-  DollarSign, 
-  Layers, 
-  ChevronDown, 
-  ChevronUp, 
-  RefreshCw, 
-  FileText, 
   CreditCard,
   QrCode,
   Archive,
-  Info,
+  ChevronDown, 
+  ChevronUp, 
   Check
 } from 'lucide-react';
 import { 
@@ -64,7 +59,8 @@ interface ParsedRow {
   cost: number;
   paymentMethodRaw: string;
   paymentMethod: PaymentMethod;
-  shipping: number;
+  shippingCharged: number;
+  shippingPaid: number;
   oldOrderId?: string;
   translatedModel: string;
   category: ProductCategory;
@@ -118,12 +114,10 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
   const [isSuccessInjected, setIsSuccessInjected] = useState<boolean>(false);
   const [injectedStats, setInjectedStats] = useState<{ orders: number; clients: number } | null>(null);
 
-  // Dados processados
   const [groupedOrders, setGroupedOrders] = useState<GroupedOrderPreview[]>([]);
   const [extractedClients, setExtractedClients] = useState<Client[]>([]);
   const [expandedOrders, setExpandedOrders] = useState<Record<string, boolean>>({});
 
-  // 1. Regra do Dicionário de Produtos (Tradução e Fallback)
   const processModelString = (rawModel: string, rawPrice: number, rawCost?: number) => {
     let clean = (rawModel || '').trim();
     if (!clean) clean = 'Produto Histórico Sem Descrição';
@@ -131,48 +125,31 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
     let category: ProductCategory = 'Terços';
     let subCategory: ProductSubCategory | undefined = undefined;
 
-    // Regra: "SM" -> Traduzir para "São Miguel"
-    // Trata "SM", "SM.", "SM ", "SM-"
     let translated = clean.replace(/\bSM\b/gi, 'São Miguel')
       .replace(/\bSM\./gi, 'São Miguel ')
       .replace(/\bSM-/gi, 'São Miguel -');
 
     const upper = translated.toUpperCase();
 
-    // Regra: se contiver "8MM" = Linha Fidelis
     if (upper.includes('8MM')) {
       category = 'Terços';
       subCategory = 'Linha Fidelis';
     }
 
-    // Regra: se contiver "DEZ" ou "DEZENA" = Categoria "Dezenas"
     if (upper.includes('DEZENA') || upper.includes('DEZ')) {
       category = 'Dezenas';
       subCategory = undefined;
     }
 
-    // Regra: São Miguel (Defensor/Princeps/Dux/Triumphus = Raízes; Serenitas/Pax/Lux/Gratia/Caritas = Fidelis)
     if (upper.includes('SÃO MIGUEL') || upper.includes('SAO MIGUEL')) {
       category = 'Terços';
-      if (
-        upper.includes('DEFENSOR') ||
-        upper.includes('PRINCEPS') ||
-        upper.includes('DUX') ||
-        upper.includes('TRIUMPHUS')
-      ) {
+      if (upper.includes('DEFENSOR') || upper.includes('PRINCEPS') || upper.includes('DUX') || upper.includes('TRIUMPHUS')) {
         subCategory = 'Linha Raízes';
-      } else if (
-        upper.includes('SERENITAS') ||
-        upper.includes('PAX') ||
-        upper.includes('LUX') ||
-        upper.includes('GRATIA') ||
-        upper.includes('CARITAS')
-      ) {
+      } else if (upper.includes('SERENITAS') || upper.includes('PAX') || upper.includes('LUX') || upper.includes('GRATIA') || upper.includes('CARITAS')) {
         subCategory = 'Linha Fidelis';
       }
     }
 
-    // Procura correspondência no catálogo oficial
     const normalizedModel = translated.toLowerCase();
     const matchedProduct = products.find((p) => {
       const pModel = (p.model || '').toLowerCase();
@@ -196,7 +173,6 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
       };
     }
 
-    // Se tiver linha Raízes ou Fidelis identificada, mas sem SKU exato
     if (subCategory) {
       const fallbackCost = rawCost && rawCost > 0 ? rawCost : Number((rawPrice * 0.28).toFixed(2));
       return {
@@ -210,9 +186,6 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
       };
     }
 
-    // FALLBACK ("Compras Antigas"):
-    // Se o modelo não bater com nenhum SKU real do catálogo, cria como "Compras Antigas"
-    // mantendo o valor financeiro da coluna PREÇO intacto para não corromper o histórico.
     const ancientCost = rawCost && rawCost > 0 ? rawCost : Number((rawPrice * 0.25).toFixed(2));
     return {
       translatedModel: translated,
@@ -225,13 +198,17 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
     };
   };
 
-  // 2. Regra Financeira: Detecção de PIX vs Cartão
+  // Regra Financeira Reforçada e Blindada contra Acentos
   const detectPaymentMethod = (rawPayment: string): { method: PaymentMethod; isPix: boolean; isCredit: boolean } => {
-    const p = (rawPayment || '').toUpperCase();
-    if (p.includes('PIX')) {
+    // Normalização bruta: Remove acentos, ç, espaços vazios extras e deixa tudo maiúsculo
+    const p = (rawPayment || '').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+    
+    if (p.includes('PIX') || p.includes('DINHEIRO') || p.includes('DEP')) {
       return { method: 'pix', isPix: true, isCredit: false };
     }
-    if (p.includes('CART') || p.includes('CREDIT') || p.includes('CRÉDIT') || p.includes('CARD')) {
+    
+    // Captura "CARTAO", "CREDIT", "CARD", "CART", "CRED"
+    if (p.includes('CART') || p.includes('CREDIT') || p.includes('CARD') || p.includes('CRED')) {
       if (p.includes('2X')) return { method: 'credito_2x', isPix: false, isCredit: true };
       if (p.includes('3X')) return { method: 'credito_3x', isPix: false, isCredit: true };
       if (p.includes('4X')) return { method: 'credito_4x', isPix: false, isCredit: true };
@@ -239,24 +216,24 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
       if (p.includes('6X')) return { method: 'credito_6x', isPix: false, isCredit: true };
       return { method: 'credito_1x', isPix: false, isCredit: true };
     }
+    
     if (p.includes('BOLETO')) {
       return { method: 'boleto', isPix: false, isCredit: false };
     }
     if (p.includes('TRANSF') || p.includes('TED') || p.includes('DOC')) {
       return { method: 'transferencia', isPix: false, isCredit: false };
     }
-    // Default seguro: Cartão 1x para considerar taxa conservadora no DRE
-    return { method: 'credito_1x', isPix: false, isCredit: true };
+    
+    // Fallback padrão se não preenchido ou ilegível
+    return { method: 'pix', isPix: true, isCredit: false };
   };
 
-  // 3. Normalização de datas (Excel Serial, DD/MM/AAAA, AAAA-MM-DD)
   const normalizeDate = (val: any): string => {
     if (!val) {
       const now = new Date();
       return `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`;
     }
 
-    // Se for número serial de data do Excel (ex: 45200)
     if (typeof val === 'number') {
       try {
         const dateObj = XLSX.SSF.parse_date_code(val);
@@ -267,15 +244,12 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
           return `${d}/${m}/${y}`;
         }
       } catch (e) {
-        // Fallback para conversão matemática
         const d = new Date(Math.round((val - 25569) * 86400 * 1000));
         return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
       }
     }
 
     const str = String(val).trim();
-
-    // Formato DD/MM/AAAA ou DD/MM/AA
     if (str.includes('/')) {
       const parts = str.split('/');
       if (parts.length >= 3) {
@@ -287,7 +261,6 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
       }
     }
 
-    // Formato AAAA-MM-DD
     if (str.includes('-')) {
       const parts = str.split('-');
       if (parts.length >= 3) {
@@ -297,11 +270,9 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
         return `${parts[0].padStart(2, '0')}/${parts[1].padStart(2, '0')}/${parts[2]}`;
       }
     }
-
     return str;
   };
 
-  // 4. Normalização de CPF
   const normalizeCpf = (val: any): string => {
     if (!val) return '';
     const digits = String(val).replace(/\D/g, '');
@@ -311,11 +282,9 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
     return String(val).trim();
   };
 
-  // 5. Parse do arquivo Excel (.xlsx) ou CSV
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     processFile(file);
   };
 
@@ -334,11 +303,7 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
         const firstSheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[firstSheetName];
 
-        // Converte com raw: false e formato de cabeçalho
-        const jsonRows: any[] = XLSX.utils.sheet_to_json(worksheet, { 
-          raw: true, 
-          defval: '' 
-        });
+        const jsonRows: any[] = XLSX.utils.sheet_to_json(worksheet, { raw: true, defval: '' });
 
         if (jsonRows.length === 0) {
           setParseErrors(['A planilha selecionada está vazia ou não contém linhas de dados.']);
@@ -353,30 +318,27 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
         setIsProcessing(false);
       }
     };
-
     reader.onerror = () => {
       setParseErrors(['Erro de leitura do arquivo no navegador.']);
       setIsProcessing(false);
     };
-
     reader.readAsBinaryString(file);
   };
 
-  // 6. MOTOR DE ETL: Agrupamento Inteligente (CPF + DATA) & Regras de Negócio
   const executeETL = (rows: any[]) => {
     const parsedRows: ParsedRow[] = [];
     const clientMap = new Map<string, Client>();
 
-    // Mapeamento tolerante de colunas (ignora maiúsculas e acentos)
+    // Mapeamento tolerante
     const getField = (row: any, ...keys: string[]): any => {
       const rowKeys = Object.keys(row);
       for (const k of keys) {
-        const cleanK = k.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        const cleanK = k.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
         const matched = rowKeys.find((rk) => {
           const cleanRK = rk.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
           return cleanRK === cleanK || cleanRK.includes(cleanK);
         });
-        if (matched && row[matched] !== undefined && row[matched] !== '') {
+        if (matched && row[matched] !== undefined && row[matched] !== null && row[matched] !== '') {
           return row[matched];
         }
       }
@@ -391,26 +353,22 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
       const normalizedCpf = normalizeCpf(rawCpf);
 
       const phone = String(getField(row, 'telefone', 'celular', 'fone', 'whatsapp', 'tel') || '(11) 99999-9999').trim();
-      // REGRA: Se não houver email na planilha, omite o email (salva string vazia)
       const email = String(getField(row, 'email', 'e-mail') || '').trim();
-      const address = String(getField(row, 'endereco', 'endereço', 'rua', 'logradouro') || 'Endereço registrado na venda').trim();
+      const address = String(getField(row, 'endereco', 'endereço', 'rua', 'logradouro') || 'Endereço não informado').trim();
       const city = String(getField(row, 'cidade', 'municipio') || 'São Paulo').trim();
       const state = String(getField(row, 'estado', 'uf') || 'SP').trim().toUpperCase().slice(0, 2);
       const cep = String(getField(row, 'cep') || '01001-000').trim();
 
       const rawModel = String(getField(row, 'modelo', 'produto', 'item', 'descricao', 'nome produto') || 'Terço Tradicional').trim();
       
-      // Parse de preço
       let rawPriceNum = 0;
       const rawPriceVal = getField(row, 'preco', 'preço', 'valor', 'valor venda', 'total item');
-      if (typeof rawPriceVal === 'number') {
-        rawPriceNum = rawPriceVal;
-      } else if (typeof rawPriceVal === 'string') {
+      if (typeof rawPriceVal === 'number') rawPriceNum = rawPriceVal;
+      else if (typeof rawPriceVal === 'string') {
         const cleanPrice = rawPriceVal.replace('R$', '').replace(/\s/g, '').replace('.', '').replace(',', '.');
         rawPriceNum = parseFloat(cleanPrice) || 0;
       }
 
-      // Parse de quantidade
       let qty = 1;
       const rawQty = getField(row, 'qtd', 'quantidade', 'qtde');
       if (typeof rawQty === 'number' && rawQty > 0) qty = rawQty;
@@ -419,7 +377,6 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
         if (!isNaN(parsedQ) && parsedQ > 0) qty = parsedQ;
       }
 
-      // Custo se houver na planilha
       let rawCostNum = 0;
       const rawCostVal = getField(row, 'custo', 'custo producao', 'custo produto');
       if (typeof rawCostVal === 'number') rawCostNum = rawCostVal;
@@ -428,23 +385,36 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
         rawCostNum = parseFloat(cleanCost) || 0;
       }
 
-      // Forma de pagamento
       const paymentRaw = String(getField(row, 'pagto', 'pagamento', 'forma de pagto', 'forma de pagamento', 'forma pgto') || 'PIX');
       const detectedPayment = detectPaymentMethod(paymentRaw);
 
-      // Frete se houver
-      let shippingVal = 0;
-      const rawShipping = getField(row, 'frete', 'envio');
-      if (typeof rawShipping === 'number') shippingVal = rawShipping;
-      else if (typeof rawShipping === 'string') {
-        const cleanS = rawShipping.replace('R$', '').replace(/\s/g, '').replace('.', '').replace(',', '.');
-        shippingVal = parseFloat(cleanS) || 0;
+      // Leitura Desdobrada do Frete (Cobrado e Pago)
+      let shippingChargedVal = 0;
+      const rawShippingCharged = getField(row, 'frete cobrado', 'frete', 'envio');
+      if (typeof rawShippingCharged === 'number') shippingChargedVal = rawShippingCharged;
+      else if (typeof rawShippingCharged === 'string') {
+        const cleanS = rawShippingCharged.replace('R$', '').replace(/\s/g, '').replace('.', '').replace(',', '.');
+        shippingChargedVal = parseFloat(cleanS) || 0;
       }
 
-      // Antiga coluna pedido (será ignorada no agrupamento mas guardada como anotação)
-      const oldOrderId = String(getField(row, 'pedido', 'num pedido', 'id pedido') || '');
+      let shippingPaidVal = 0;
+      const rawShippingPaid = getField(row, 'frete pago', 'custo frete', 'frete cotado');
+      if (typeof rawShippingPaid === 'number') shippingPaidVal = rawShippingPaid;
+      else if (typeof rawShippingPaid === 'string') {
+        const cleanS = rawShippingPaid.replace('R$', '').replace(/\s/g, '').replace('.', '').replace(',', '.');
+        shippingPaidVal = parseFloat(cleanS) || 0;
+      }
 
-      // Aplica Dicionário de Produtos (Tradução e Fallback)
+      // Prevenção: Se a coluna "Frete Pago" não existir, iguala ao cobrado para o DRE ficar neutro
+      const hasShippingPaidCol = Object.keys(row).some(k => {
+        const cl = k.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+        return cl.includes('frete pago') || cl.includes('frete cotado') || cl.includes('custo frete');
+      });
+      if (!hasShippingPaidCol && shippingPaidVal === 0 && shippingChargedVal > 0) {
+        shippingPaidVal = shippingChargedVal;
+      }
+
+      const oldOrderId = String(getField(row, 'pedido', 'num pedido', 'id pedido') || '');
       const productResolution = processModelString(rawModel, rawPriceNum, rawCostNum);
 
       parsedRows.push({
@@ -466,7 +436,8 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
         cost: productResolution.costPrice,
         paymentMethodRaw: paymentRaw,
         paymentMethod: detectedPayment.method,
-        shipping: shippingVal,
+        shippingCharged: shippingChargedVal,
+        shippingPaid: shippingPaidVal,
         oldOrderId,
         translatedModel: productResolution.translatedModel,
         category: productResolution.category,
@@ -475,7 +446,6 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
         sku: productResolution.sku,
       });
 
-      // Cadastra Cliente no mapa único (prioriza CPF, fallback nome)
       const clientKey = normalizedCpf || clientName.toLowerCase();
       if (!clientMap.has(clientKey)) {
         clientMap.set(clientKey, {
@@ -483,7 +453,7 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
           name: clientName,
           cpf: normalizedCpf,
           phone,
-          email, // Omitido se vazio, preservando integridade
+          email,
           address,
           city,
           state,
@@ -492,15 +462,9 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
       }
     });
 
-    // =========================================================================
-    // REGRA DE OURO: AGRUPAMENTO INTELIGENTE POR (CPF + DATA)
-    // Se múltiplas linhas tiverem o mesmo CPF na mesma DATA, agrupá-las num único Pedido!
-    // A antiga coluna PEDIDO da planilha é ignorada para agrupamento.
-    // =========================================================================
     const groups = new Map<string, ParsedRow[]>();
 
     parsedRows.forEach((row) => {
-      // Se CPF for vazio, usa nome + data como fallback seguro
       const cpfPart = row.normalizedCpf ? row.normalizedCpf.replace(/\D/g, '') : `NOCPF_${row.clientName.toLowerCase().replace(/\s+/g, '_')}`;
       const groupKey = `${cpfPart}__${row.normalizedDate}`;
 
@@ -516,7 +480,8 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
     groups.forEach((groupRows, key) => {
       const firstRow = groupRows[0];
       const items: OrderItem[] = [];
-      let totalShipping = 0;
+      let totalShippingCharged = 0;
+      let totalShippingPaid = 0;
       let ancientCount = 0;
       let matchedCount = 0;
 
@@ -541,22 +506,23 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
           totalCost: itemCostTotal,
         });
 
-        // O frete só é somado se for explicitado na linha
-        if (r.shipping > 0 && totalShipping === 0) {
-          totalShipping = r.shipping;
+        if (r.shippingCharged > 0 && totalShippingCharged === 0) {
+          totalShippingCharged = r.shippingCharged;
+          totalShippingPaid = r.shippingPaid;
         }
       });
 
       const subtotal = items.reduce((acc, it) => acc + it.totalPrice, 0);
       const totalCost = items.reduce((acc, it) => acc + it.totalCost, 0);
-      const totalSale = subtotal + totalShipping;
+      const totalSale = subtotal + totalShippingCharged;
 
-      // Regra Financeira: Taxa da operadora de cartão
       const feeRate = PAYMENT_FEE_RATES[firstRow.paymentMethod] || 0.0;
       const gatewayFee = subtotal * feeRate;
-      const estimatedNetProfit = (subtotal - totalCost - gatewayFee);
+      
+      // Lucro = Venda Produto Líquida - Custo Produção - Taxa Gateway + (Frete Cobrado - Frete Pago)
+      const shippingSurplus = totalShippingCharged - totalShippingPaid;
+      const estimatedNetProfit = (subtotal - totalCost - gatewayFee) + shippingSurplus;
 
-      // Gerador sequencial de número do pedido no formato Terçarium (XXXYYZZ)
       const targetDate = firstRow.normalizedDate;
       const generatedId = calculateNextOrderId(targetDate, [
         ...orders,
@@ -581,8 +547,8 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
         isPix: firstRow.paymentMethod === 'pix',
         feeRate,
         subtotal,
-        shippingCharged: totalShipping,
-        shippingPaid: totalShipping,
+        shippingCharged: totalShippingCharged,
+        shippingPaid: totalShippingPaid,
         totalSale,
         totalCost,
         estimatedNetProfit,
@@ -600,11 +566,9 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
     setIsProcessing(false);
   };
 
-  // 7. Ação de Injeção no Banco de Dados do ERP
   const handleConfirmAndInject = () => {
     if (groupedOrders.length === 0) return;
 
-    // Converte os GroupedOrderPreview para a estrutura final de Order do ERP
     const finalOrders: Order[] = groupedOrders.map((grp) => {
       const summaryText = grp.items.length === 1 
         ? grp.items[0].model 
@@ -658,7 +622,6 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
     });
   };
 
-  // Download de planilha modelo (.xlsx)
   const handleDownloadTemplate = () => {
     const templateData = [
       {
@@ -675,10 +638,11 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
         PRECO: 109.90,
         QTD: 1,
         PAGTO: 'PIX',
-        FRETE: 22.00,
+        'FRETE COBRADO': 22.00,
+        'FRETE PAGO': 20.00,
       },
       {
-        CPF: '123.456.789-00', // Mesmo CPF e mesma DATA: será agrupado automaticamente no mesmo carrinho!
+        CPF: '123.456.789-00',
         DATA: '15/10/2026',
         CLIENTE: 'Maria Aparecida Santos',
         TELEFONE: '(11) 98765-4321',
@@ -691,23 +655,25 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
         PRECO: 10.00,
         QTD: 2,
         PAGTO: 'PIX',
-        FRETE: 0,
+        'FRETE COBRADO': 0,
+        'FRETE PAGO': 0,
       },
       {
         CPF: '987.654.321-11',
         DATA: '16/10/2026',
         CLIENTE: 'João Paulo Silva',
         TELEFONE: '(21) 99887-6655',
-        EMAIL: '', // Sem e-mail: teste de preservação e omissão de email
+        EMAIL: '',
         ENDERECO: 'Av. Copacabana, 500',
         CIDADE: 'Rio de Janeiro',
         ESTADO: 'RJ',
         CEP: '22020-001',
-        MODELO: 'SM Defensor', // Teste de tradução: "SM" -> "São Miguel Defensor" (Linha Raízes)
+        MODELO: 'SM Defensor',
         PRECO: 134.90,
         QTD: 1,
-        PAGTO: 'CARTÃO 2X',
-        FRETE: 28.00,
+        PAGTO: 'CARTÃO',
+        'FRETE COBRADO': 28.00,
+        'FRETE PAGO': 25.50,
       },
       {
         CPF: '555.444.333-22',
@@ -719,11 +685,12 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
         CIDADE: 'Belo Horizonte',
         ESTADO: 'MG',
         CEP: '30160-011',
-        MODELO: 'Graças Vinho 8mm', // Teste 8MM -> Linha Fidelis
+        MODELO: 'Graças Vinho 8mm',
         PRECO: 74.90,
         QTD: 1,
         PAGTO: 'PIX',
-        FRETE: 20.00,
+        'FRETE COBRADO': 20.00,
+        'FRETE PAGO': 20.00,
       },
       {
         CPF: '777.888.999-00',
@@ -735,11 +702,12 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
         CIDADE: 'Curitiba',
         ESTADO: 'PR',
         CEP: '80020-310',
-        MODELO: 'Rosário Rústico Madeira Especial Edição 2023', // Teste Fallback "Compras Antigas"
+        MODELO: 'Rosário Rústico Madeira Especial Edição 2023',
         PRECO: 89.00,
         QTD: 1,
-        PAGTO: 'CARTÃO 1X',
-        FRETE: 25.00,
+        PAGTO: 'CARTÃO 3X',
+        'FRETE COBRADO': 25.00,
+        'FRETE PAGO': 22.00,
       },
     ];
 
@@ -749,7 +717,6 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
     XLSX.writeFile(wb, 'modelo_importacao_vendas_tercarium.xlsx');
   };
 
-  // Carregar dados de teste instantâneos
   const handleLoadDemoData = () => {
     const demoData = [
       {
@@ -766,10 +733,11 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
         preco: 109.90,
         qtd: 1,
         pagto: 'PIX',
-        frete: 22.00,
+        'frete cobrado': 22.00,
+        'frete pago': 20.00,
       },
       {
-        cpf: '123.456.789-00', // Mesmo CPF e mesma DATA -> Agrupa com o anterior
+        cpf: '123.456.789-00',
         data: '15/10/2026',
         cliente: 'Maria Aparecida Santos',
         telefone: '(11) 98765-4321',
@@ -782,7 +750,8 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
         preco: 10.00,
         qtd: 2,
         pagto: 'PIX',
-        frete: 0,
+        'frete cobrado': 0,
+        'frete pago': 0,
       },
       {
         cpf: '987.654.321-11',
@@ -794,11 +763,12 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
         cidade: 'Rio de Janeiro',
         estado: 'RJ',
         cep: '22020-001',
-        modelo: 'SM Defensor', // SM -> São Miguel Defensor (Linha Raízes)
+        modelo: 'SM Defensor',
         preco: 134.90,
         qtd: 1,
         pagto: 'CARTÃO 2X',
-        frete: 28.00,
+        'frete cobrado': 28.00,
+        'frete pago': 25.50,
       },
       {
         cpf: '555.444.333-22',
@@ -810,11 +780,12 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
         cidade: 'Belo Horizonte',
         estado: 'MG',
         cep: '30160-011',
-        modelo: 'Graças Vinho 8mm', // 8MM -> Linha Fidelis
+        modelo: 'Graças Vinho 8mm',
         preco: 74.90,
         qtd: 1,
         pagto: 'PIX',
-        frete: 20.00,
+        'frete cobrado': 20.00,
+        'frete pago': 20.00,
       },
       {
         cpf: '777.888.999-00',
@@ -826,11 +797,12 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
         cidade: 'Curitiba',
         estado: 'PR',
         cep: '80020-310',
-        modelo: 'Rosário Rústico Madeira Especial Edição 2023', // Fallback "Compras Antigas"
+        modelo: 'Rosário Rústico Madeira Especial Edição 2023',
         preco: 89.00,
         qtd: 1,
         pagto: 'CARTÃO 1X',
-        frete: 25.00,
+        'frete cobrado': 25.00,
+        'frete pago': 22.00,
       },
     ];
 
@@ -847,7 +819,6 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
     }));
   };
 
-  // Totais do lote
   const summaryTotals = useMemo(() => {
     const totalVenda = groupedOrders.reduce((acc, o) => acc + o.totalSale, 0);
     const totalLucroEstimado = groupedOrders.reduce((acc, o) => acc + o.estimatedNetProfit, 0);
@@ -855,13 +826,7 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
     const totalAncient = groupedOrders.reduce((acc, o) => acc + o.ancientItemsCount, 0);
     const totalMatched = groupedOrders.reduce((acc, o) => acc + o.matchedItemsCount, 0);
 
-    return {
-      totalVenda,
-      totalLucroEstimado,
-      totalItens,
-      totalAncient,
-      totalMatched,
-    };
+    return { totalVenda, totalLucroEstimado, totalItens, totalAncient, totalMatched };
   }, [groupedOrders]);
 
   return (
@@ -1146,7 +1111,7 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
                     <th className="py-3 px-4">Itens Agrupados</th>
                     <th className="py-3 px-4">Pagamento / Taxa</th>
                     <th className="py-3 px-4 text-right">Subtotal</th>
-                    <th className="py-3 px-4 text-right">Frete</th>
+                    <th className="py-3 px-4 text-right">Frete (Cobrado / Pago)</th>
                     <th className="py-3 px-4 text-right">Total Pedido</th>
                     <th className="py-3 px-4 text-center">Ações</th>
                   </tr>
@@ -1203,10 +1168,10 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
                               {order.isPix ? (
                                 <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 font-bold text-[10px] flex items-center gap-1">
                                   <QrCode className="w-3 h-3 text-emerald-600" />
-                                  PIX (Líquido puro - 0%)
+                                  PIX (0% taxa)
                                 </span>
                               ) : (
-                                <span className="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-800 border border-indigo-200 font-medium text-[10px] flex items-center gap-1">
+                                <span className="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-800 border border-indigo-200 font-bold text-[10px] flex items-center gap-1">
                                   <CreditCard className="w-3 h-3 text-indigo-600" />
                                   Cartão ({(order.feeRate * 100).toFixed(1)}% taxa)
                                 </span>
@@ -1222,7 +1187,14 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
                           </td>
 
                           <td className="py-3 px-4 text-right font-mono text-slate-500">
-                            {order.shippingCharged > 0 ? formatBRL(order.shippingCharged) : 'R$ 0,00'}
+                            <div className="text-slate-800 font-bold">
+                              {order.shippingCharged > 0 ? formatBRL(order.shippingCharged) : 'Grátis'}
+                            </div>
+                            {order.shippingPaid > 0 && order.shippingPaid !== order.shippingCharged && (
+                              <div className="text-[10px] text-slate-400">
+                                Custo: {formatBRL(order.shippingPaid)}
+                              </div>
+                            )}
                           </td>
 
                           <td className="py-3 px-4 text-right font-mono font-bold text-slate-900">
@@ -1248,7 +1220,6 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
                           </td>
                         </tr>
 
-                        {/* LINHA EXPANDIDA COM OS ITENS INDIVIDUAIS */}
                         {isExpanded && (
                           <tr className="bg-amber-50/40 border-b border-amber-100">
                             <td colSpan={8} className="py-3 px-6">
