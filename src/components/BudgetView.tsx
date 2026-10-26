@@ -30,7 +30,8 @@ import {
   Search,
   SlidersHorizontal,
   UserCheck,
-  ArrowLeft
+  ArrowLeft,
+  Edit3
 } from 'lucide-react';
 import { Product, sortProductsHierarchically, Client, SavedBudget, PrefilledFreightData } from '../types/erp';
 import { formatBRL, maskCEP } from '../utils/formatters';
@@ -77,7 +78,6 @@ export const SHIPPING_PLATFORMS = [
   'Outra',
 ] as const;
 
-// Interfaces e Constantes da Cotação de Frete
 export interface CarrierOption {
   transportadora: string;
   plataforma: 'MELHOR ENVIO' | 'FRENET' | string;
@@ -87,7 +87,7 @@ export interface CarrierOption {
   [key: string]: any;
 }
 
-const CEP_ORIGEM = "86050464"; // Londrina - PR (Ateliê Terçarium)
+const CEP_ORIGEM = "86050464"; 
 const URL_DO_SERVIDOR_GOOGLE = "https://script.google.com/macros/s/AKfycbyobO3yCc4MaOwab8EXF1tclVRXXxV5xoXZz8ktUVz_kfNCTjQvAKhI6tow6YPF7I962Q/exec";
 
 interface BudgetViewProps {
@@ -121,6 +121,7 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
 
   const [leadName, setLeadName] = useState<string>('');
   const [savedBudgets, setSavedBudgets] = useState<SavedBudget[]>([]);
+  const [editingBudgetId, setEditingBudgetId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchBudgetsFromSupabase();
@@ -169,7 +170,7 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
   const [addQuantity, setAddQuantity] = useState<number>(1);
   const [showItemPicker, setShowItemPicker] = useState<boolean>(false);
 
-  // --- LÓGICA DE FRETE INTEGRADA ---
+  // LÓGICA DE FRETE INTEGRADA
   const [activeFreightView, setActiveFreightView] = useState<'formulario' | 'interno' | 'cliente'>('formulario');
   const [cepDestino, setCepDestino] = useState('');
   const [cidadeEstado, setCidadeEstado] = useState('');
@@ -184,35 +185,24 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
   const [ordenacao, setOrdenacao] = useState<'barato' | 'rapido'>('barato');
   const [selectedFreightKey, setSelectedFreightKey] = useState<string | null>(null);
 
-  // Helper: Cálculo da Margem / Preço para o Cliente
   const getCustomerPrice = (costPrice: number) => {
     let acrescimo = 1.00;
-    if (costPrice <= 20.00) {
-      acrescimo = 1.80;
-    } else if (costPrice <= 30.00) {
-      acrescimo = 1.50;
-    }
+    if (costPrice <= 20.00) acrescimo = 1.80;
+    else if (costPrice <= 30.00) acrescimo = 1.50;
     return costPrice + acrescimo;
   };
 
-  // Helper: Janela de entrega estimada para o cliente (+- 1 dia)
   const getCustomerWindow = (prazo: number) => {
     let min = prazo - 1;
     let max = prazo + 1;
-    if (min < 1) {
-      min = 1;
-      max = 2;
-    }
+    if (min < 1) { min = 1; max = 2; }
     return { min, max };
   };
 
   const sortedCotacoes = useMemo(() => {
     const list = [...dadosCotacoes];
-    if (ordenacao === 'barato') {
-      list.sort((a, b) => a.preco - b.preco);
-    } else {
-      list.sort((a, b) => a.prazo - b.prazo);
-    }
+    if (ordenacao === 'barato') list.sort((a, b) => a.preco - b.preco);
+    else list.sort((a, b) => a.prazo - b.prazo);
     return list;
   }, [dadosCotacoes, ordenacao]);
 
@@ -229,17 +219,13 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
   const handleCepSearch = async (val: string) => {
     const masked = maskCEP(val);
     setCepDestino(masked);
-
     const clean = masked.replace(/\D/g, '');
     if (clean.length === 8) {
       try {
         const res = await fetch(`https://viacep.com.br/ws/${clean}/json/`);
         const data = await res.json();
-        if (!data.erro) {
-          setCidadeEstado(`${data.localidade}-${data.uf}`);
-        } else {
-          setCidadeEstado(`CEP ${clean}`);
-        }
+        if (!data.erro) setCidadeEstado(`${data.localidade}-${data.uf}`);
+        else setCidadeEstado(`CEP ${clean}`);
       } catch {
         setCidadeEstado(`CEP ${clean}`);
       }
@@ -256,7 +242,6 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
       setFreightError('Digite um CEP válido com 8 dígitos numéricos.');
       return;
     }
-
     const numValorDeclarado = subtotalProducts;
     if (numValorDeclarado <= 0) {
       setFreightError('Adicione itens ao carrinho para obter o Valor dos Itens obrigatório.');
@@ -276,13 +261,9 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
       try {
         const viaCepRes = await fetch(`https://viacep.com.br/ws/${cleanCep}/json/`);
         const viaCepData = await viaCepRes.json();
-        if (!viaCepData.erro) {
-          cidadeAtual = `${viaCepData.localidade}-${viaCepData.uf}`;
-          setCidadeEstado(cidadeAtual);
-        } else {
-          cidadeAtual = `CEP ${cleanCep}`;
-          setCidadeEstado(cidadeAtual);
-        }
+        if (!viaCepData.erro) cidadeAtual = `${viaCepData.localidade}-${viaCepData.uf}`;
+        else cidadeAtual = `CEP ${cleanCep}`;
+        setCidadeEstado(cidadeAtual);
       } catch {
         cidadeAtual = `CEP ${cleanCep}`;
         setCidadeEstado(cidadeAtual);
@@ -330,7 +311,6 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
       data.forEach((opcao: any) => {
         const transportadora = String(opcao.transportadora || '').toUpperCase();
         const plataforma = String(opcao.plataforma || '');
-
         const isCorreiosPAC = transportadora.includes("CORREIOS") && transportadora.includes("PAC");
         const isCorreiosSedex = transportadora.includes("CORREIOS") && transportadora.includes("SEDEX");
         const isLoggi = transportadora.includes("LOGGI");
@@ -339,17 +319,9 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
         const prazo = parseInt(opcao.prazo, 10) || 0;
 
         if (plataforma === "FRENET") {
-          if (isCorreiosPAC || isCorreiosSedex) {
-            preco += 1.10;
-          }
+          if (isCorreiosPAC || isCorreiosSedex) preco += 1.10;
           if (isCorreiosPAC || isCorreiosSedex || isLoggi) {
-            cotacoesProcessadas.push({
-              ...opcao,
-              preco,
-              prazo,
-              transportadora: opcao.transportadora,
-              plataforma,
-            });
+            cotacoesProcessadas.push({ ...opcao, preco, prazo, transportadora: opcao.transportadora, plataforma });
           }
         } else {
           const isLoggiExpress = isLoggi && transportadora.includes("EXPRESS");
@@ -357,13 +329,7 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
           const isJTStandard = (transportadora.includes("J&T") || transportadora.includes("JET")) && transportadora.includes("STANDARD");
 
           if (isCorreiosPAC || isCorreiosSedex || isLoggiExpress || isLoggiPonto || isJTStandard) {
-            cotacoesProcessadas.push({
-              ...opcao,
-              preco,
-              prazo,
-              transportadora: opcao.transportadora,
-              plataforma,
-            });
+            cotacoesProcessadas.push({ ...opcao, preco, prazo, transportadora: opcao.transportadora, plataforma });
           }
         }
       });
@@ -373,13 +339,12 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
       setActiveFreightView('cliente'); 
     } catch (err: any) {
       console.error('Erro na cotação:', err);
-      setFreightError('Erro ao conectar com o servidor de cotação. Verifique a conexão e tente novamente.');
+      setFreightError('Erro ao conectar. Verifique a conexão e tente novamente.');
       setIsSearchingFreight(false);
     }
   };
 
   const selectCarrierResult = (carrier: CarrierOption) => {
-    // 1. Normaliza Plataforma
     let plataformaSelecionada = 'Melhor Envio';
     const platLow = (carrier.plataforma || '').toLowerCase();
     if (platLow.includes('frenet')) plataformaSelecionada = 'Frenet';
@@ -394,7 +359,6 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
        setCustomPlatform(plataformaSelecionada);
     }
     
-    // 2. Normaliza Transportadora
     let transportadoraSelecionada = 'Correios PAC';
     const transpUp = (carrier.transportadora || '').toUpperCase();
     if (transpUp.includes('SEDEX')) transportadoraSelecionada = 'Correios SEDEX';
@@ -413,7 +377,6 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
     const { min, max } = getCustomerWindow(carrier.prazo);
     setEstimatedDeliveryTime(`${min} a ${max} dias úteis`);
     
-    // Preenche Valores
     const precoFinalCliente = getCustomerPrice(carrier.preco);
     setFreteCotado(carrier.preco.toFixed(2));
     setFreteCobrado(precoFinalCliente.toFixed(2));
@@ -450,7 +413,6 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
     return { option: 'Correios PAC', custom: '' };
   };
   
-  // Variáveis Finais do Frete
   const [selectedPlatform, setSelectedPlatform] = useState<string>(() => resolvePlatformOrig(prefilledFreight).platform);
   const [customPlatform, setCustomPlatform] = useState<string>(() => resolvePlatformOrig(prefilledFreight).custom);
   const [selectedShippingOption, setSelectedShippingOption] = useState<ShippingOption>(() => resolveCarrierOrig(prefilledFreight).option as ShippingOption);
@@ -500,7 +462,6 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
         setFreteCobrado(cobradoNum.toFixed(2));
       }
       setFreteCotado(cotadoNum.toFixed(2));
-
       if (prefilledFreight.prazoTexto) setEstimatedDeliveryTime(prefilledFreight.prazoTexto);
 
       const platResolved = resolvePlatformOrig(prefilledFreight);
@@ -510,8 +471,6 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
       const carrierResolved = resolveCarrierOrig(prefilledFreight);
       setSelectedShippingOption(carrierResolved.option as ShippingOption);
       setCustomShippingOption(carrierResolved.custom);
-
-      setPrefilledNotice(`Frete importado da Cotação`);
     }
   }, [prefilledFreight]);
 
@@ -537,7 +496,6 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
     const itemsLines = items.map((it) => {
       const prefix = `${it.quantity}x `;
       const obsText = it.observacao ? ` (${it.observacao})` : '';
-      
       if (it.quantity > 1) {
         return `${prefix}${it.name}${obsText} (R$ ${formatCurrencyValue(it.unitPrice)}/un) = R$ ${formatCurrencyValue(it.totalPrice)}`;
       }
@@ -618,13 +576,54 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
     }
   };
 
+  // --- NOVA FUNÇÃO PARA CARREGAR UM ORÇAMENTO PARA EDIÇÃO ---
+  const handleEditSavedBudget = (b: SavedBudget) => {
+    setEditingBudgetId(b.id);
+    setLeadName(b.leadName === 'Interessado' ? '' : b.leadName);
+    setItems(b.items);
+    
+    const plat = b.shippingPlatform || 'Melhor Envio';
+    if (SHIPPING_PLATFORMS.includes(plat as any)) {
+      setSelectedPlatform(plat);
+      setCustomPlatform('');
+    } else {
+      setSelectedPlatform('Outra');
+      setCustomPlatform(plat);
+    }
+
+    const opt = b.shippingOption || 'Correios PAC';
+    if (SHIPPING_OPTIONS.includes(opt as any)) {
+      setSelectedShippingOption(opt as ShippingOption);
+      setCustomShippingOption('');
+    } else {
+      setSelectedShippingOption('Outra');
+      setCustomShippingOption(opt);
+    }
+
+    setEstimatedDeliveryTime(b.estimatedDeliveryTime || '7 dias úteis');
+    setFreteCotado((b.freteCotado || 0).toFixed(2));
+    setFreteCobrado((b.freteCobrado ?? b.shippingValue).toFixed(2));
+    setIsFreteGratis(b.freteCobrado === 0);
+
+    setActiveFreightView('formulario');
+    setDadosCotacoes([]);
+
+    setToastNotice('Orçamento carregado para edição!');
+    setTimeout(() => setToastNotice(null), 2500);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // --- ATUALIZADA PARA INSERIR OU ATUALIZAR ---
   const handleSaveBudget = async () => {
     if (items.length === 0) return;
     
+    const budgetId = editingBudgetId || `ORC-${Date.now()}`;
     const newBudget: SavedBudget = {
-      id: `ORC-${Date.now()}`,
+      id: budgetId,
       leadName: leadName.trim() || 'Interessado',
-      createdAt: new Date().toLocaleDateString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+      createdAt: editingBudgetId 
+        ? savedBudgets.find(b => b.id === editingBudgetId)?.createdAt || new Date().toLocaleDateString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+        : new Date().toLocaleDateString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
       items: items.map((it) => ({ ...it })),
       shippingOption: selectedShippingOption === 'Outra' ? (customShippingOption || 'Outra') : selectedShippingOption,
       estimatedDeliveryTime,
@@ -640,9 +639,9 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
     };
 
     try {
-      await supabase.from('orcamentos').insert([
-        {
-          id: newBudget.id,
+      if (editingBudgetId) {
+        // Atualiza orçamento existente
+        const { error } = await supabase.from('orcamentos').update({
           client_name: newBudget.leadName,
           items: newBudget.items,
           shipping_option: newBudget.shippingOption,
@@ -655,12 +654,39 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
           total_pix: newBudget.totalPix,
           text: newBudget.text,
           shipping_platform: newBudget.shippingPlatform,
-        }
-      ]);
+        }).eq('id', editingBudgetId);
 
-      setSavedBudgets((prev) => [newBudget, ...prev]);
+        if (error) throw error;
+
+        setSavedBudgets((prev) => prev.map(b => b.id === editingBudgetId ? newBudget : b));
+        setToastNotice(`Orçamento atualizado com sucesso!`);
+        setEditingBudgetId(null);
+      } else {
+        // Cria novo orçamento
+        const { error } = await supabase.from('orcamentos').insert([
+          {
+            id: newBudget.id,
+            client_name: newBudget.leadName,
+            items: newBudget.items,
+            shipping_option: newBudget.shippingOption,
+            estimated_delivery_time: newBudget.estimatedDeliveryTime,
+            shipping_value: newBudget.shippingValue,
+            frete_cotado: newBudget.freteCotado,
+            sobra_frete: newBudget.sobraFrete,
+            subtotal_products: newBudget.subtotalProducts,
+            total_value: newBudget.totalNormal,
+            total_pix: newBudget.totalPix,
+            text: newBudget.text,
+            shipping_platform: newBudget.shippingPlatform,
+          }
+        ]);
+
+        if (error) throw error;
+        setSavedBudgets((prev) => [newBudget, ...prev]);
+        setToastNotice(`Orçamento salvo na nuvem com sucesso!`);
+      }
+
       setIsSaved(true);
-      setToastNotice(`Orçamento salvo na nuvem com sucesso!`);
       setTimeout(() => {
         setIsSaved(false);
         setToastNotice(null);
@@ -672,6 +698,9 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
 
   const handleDeleteSavedBudget = async (id: string) => {
     setSavedBudgets((prev) => prev.filter((b) => b.id !== id));
+    if (editingBudgetId === id) {
+      handleReset(); // Limpa o formulário caso esteja a apagar o orçamento que está a ser editado
+    }
     try {
       await supabase.from('orcamentos').delete().eq('id', id);
     } catch (err) {
@@ -710,6 +739,8 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
     setCidadeEstado('');
     setDadosCotacoes([]);
     setActiveFreightView('formulario');
+    setEditingBudgetId(null);
+    setLeadName('');
     if (onClearPrefilledFreight) onClearPrefilledFreight();
   };
 
@@ -740,10 +771,12 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
           </div>
           <h2 className="text-lg sm:text-xl font-bold tracking-tight text-white flex items-center gap-2">
             <MessageSquare className="w-5 h-5 text-emerald-400" />
-            Gerador de Orçamento
+            {editingBudgetId ? `Editando: ${editingBudgetId}` : 'Gerador de Orçamento'}
           </h2>
           <p className="text-xs sm:text-sm text-slate-300 max-w-2xl">
-            Monte orçamentos em segundos com produtos do catálogo, cote e selecione a transportadora e copie a mensagem formatada para enviar direto ao cliente pelo WhatsApp.
+            {editingBudgetId 
+              ? 'Faça as alterações necessárias nos itens ou frete e clique em Atualizar Orçamento.'
+              : 'Monte orçamentos em segundos com produtos do catálogo, cote e selecione a transportadora e copie a mensagem formatada para enviar direto ao cliente pelo WhatsApp.'}
           </p>
         </div>
 
@@ -754,7 +787,7 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
             className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 transition-colors cursor-pointer"
           >
             <RefreshCw className="w-3.5 h-3.5" />
-            <span>Limpar / Novo</span>
+            <span>{editingBudgetId ? 'Cancelar Edição' : 'Limpar / Novo'}</span>
           </button>
           <button
             type="button"
@@ -801,7 +834,7 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
             />
           </div>
 
-          {/* Produtos do Orçamento - NOVO CARRINHO UNIFICADO */}
+          {/* Produtos do Orçamento - CARRINHO UNIFICADO */}
           <div className="bg-white rounded-xl border border-slate-200/90 shadow-xs p-4 sm:p-5 space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 flex-wrap gap-2">
               <div className="flex items-center gap-2">
@@ -1006,7 +1039,7 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
                 </div>
               </div>
               
-              {/* Abas Internas da Cotação (se já buscou) */}
+              {/* Abas Internas da Cotação */}
               {dadosCotacoes.length > 0 && (
                 <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-lg">
                   <button
@@ -1296,7 +1329,7 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
               </div>
             )}
 
-            {/* CAMPOS DE FECHAMENTO DO FRETE (Os que preenchem e mostram no Zap) */}
+            {/* CAMPOS DE FECHAMENTO DO FRETE */}
             <div className="pt-4 border-t border-slate-200">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
                 <div>
@@ -1399,7 +1432,7 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
             </div>
           </div>
 
-          {/* Botão Salvar Orçamento */}
+          {/* Botão Salvar/Atualizar Orçamento */}
           <div className="bg-white rounded-xl border border-slate-200/90 shadow-xs p-4 flex justify-end">
             <button
               type="button"
@@ -1410,7 +1443,7 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
               }`}
             >
               <CheckCircle2 className="w-4 h-4" />
-              <span>Salvar Orçamento na Nuvem</span>
+              <span>{editingBudgetId ? 'Atualizar Orçamento na Nuvem' : 'Salvar Orçamento na Nuvem'}</span>
             </button>
           </div>
         </div>
@@ -1462,7 +1495,11 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
                 {savedBudgets.map((b) => (
                   <div
                     key={b.id}
-                    className="p-2.5 sm:p-3 rounded-xl border border-slate-200 hover:border-amber-300 bg-slate-50/70 hover:bg-white transition-all space-y-2 shadow-2xs group"
+                    className={`p-2.5 sm:p-3 rounded-xl border transition-all space-y-2 shadow-2xs group ${
+                      editingBudgetId === b.id 
+                        ? 'border-amber-400 bg-amber-50/30' 
+                        : 'border-slate-200 hover:border-amber-300 bg-slate-50/70 hover:bg-white'
+                    }`}
                   >
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
@@ -1477,14 +1514,28 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
                         </span>
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteSavedBudget(b.id)}
-                        className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer shrink-0"
-                        title="Excluir orçamento salvo"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleEditSavedBudget(b)}
+                          className={`p-1.5 rounded transition-colors cursor-pointer ${
+                            editingBudgetId === b.id 
+                              ? 'bg-amber-500 text-slate-900 shadow-xs' 
+                              : 'text-slate-400 hover:text-amber-600 hover:bg-amber-50'
+                          }`}
+                          title="Editar orçamento"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteSavedBudget(b.id)}
+                          className="p-1.5 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                          title="Excluir orçamento salvo"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
 
                     <div className="bg-slate-100/90 rounded-lg p-2 text-xs border border-slate-200/80 space-y-1">
