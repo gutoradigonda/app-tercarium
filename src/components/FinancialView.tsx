@@ -55,7 +55,7 @@ interface FinancialViewProps {
   expenses?: Expense[];
 }
 
-type DetailCardType = 'venda' | 'ticket' | 'custos' | 'descontos' | 'frete' | 'lucroBruto' | 'devolvidos' | null;
+type DetailCardType = 'venda' | 'ticket' | 'custos' | 'despesas' | 'descontos' | 'frete' | 'lucroBruto' | 'devolvidos' | null;
 
 export const FinancialView: React.FC<FinancialViewProps> = ({ orders, onSelectOrder, expenses = [] }) => {
   const [mesesSelecionados, setMesesSelecionados] = useState<string[]>(() => [getCurrentMonthKey()]);
@@ -329,6 +329,28 @@ export const FinancialView: React.FC<FinancialViewProps> = ({ orders, onSelectOr
               Taxas de Gateway <CreditCard className="w-3.5 h-3.5" />
             </span>
             <span className="text-rose-600 font-medium">{formatBRL(totalTaxasGateway)}</span>
+          </div>
+        </div>
+      );
+    } else if (activeDetailCard === 'despesas') {
+      title = 'Resumo de Despesas do Ateliê';
+      icon = <Receipt className="w-5 h-5" />;
+      colorClass = 'text-orange-700 bg-orange-50 border-orange-200';
+      totalMain = formatBRL(totalDespesasGerais);
+      totalLabel = 'Total de despesas operacionais registradas no período';
+
+      content = (
+        <div className="space-y-3 font-mono text-xs">
+          <div className="flex justify-between items-center py-1.5 border-b border-slate-100">
+            <span className="text-slate-500 font-sans">Custos Fixos (Aluguel, Sistemas, etc.)</span>
+            <span className="text-orange-600 font-medium">{formatBRL(totalDespesasFixas)}</span>
+          </div>
+          <div className="flex justify-between items-center py-1.5 border-b border-slate-100">
+            <span className="text-slate-500 font-sans">Custos Variáveis (Embalagens, Tráfego)</span>
+            <span className="text-orange-600 font-medium">{formatBRL(totalDespesasVariaveis)}</span>
+          </div>
+          <div className="p-3 bg-slate-50 rounded-lg text-[11px] text-slate-500 font-sans leading-relaxed border border-slate-200 mt-2">
+            As despesas são subtraídas do Lucro Bruto para formar o seu Lucro Líquido Real.
           </div>
         </div>
       );
@@ -606,11 +628,17 @@ export const FinancialView: React.FC<FinancialViewProps> = ({ orders, onSelectOr
         </div>
 
         {/* Card 4: Total de Despesas */}
-        <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col justify-between space-y-2 min-w-0">
+        <div 
+          onClick={() => setActiveDetailCard('despesas')}
+          className="bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col justify-between space-y-2 cursor-pointer hover:border-orange-400 hover:shadow-md transition-all group min-w-0"
+        >
           <div className="flex items-start justify-between text-xs text-slate-500 gap-1">
             <span className="font-semibold text-slate-700 whitespace-normal break-words" title="Total de Despesas">Total Despesas</span>
-            <div className="w-7 h-7 rounded-lg bg-orange-500/10 text-orange-700 flex items-center justify-center shrink-0">
-              <Receipt className="w-4 h-4" />
+            <div className="flex items-center gap-1.5">
+              <span className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] font-medium text-orange-600 bg-orange-50 px-1.5 py-0.5 rounded">Resumo</span>
+              <div className="w-7 h-7 rounded-lg bg-orange-500/10 text-orange-700 flex items-center justify-center shrink-0 group-hover:bg-orange-100 transition-colors">
+                <Receipt className="w-4 h-4" />
+              </div>
             </div>
           </div>
           <div className="min-w-0">
