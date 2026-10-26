@@ -144,7 +144,6 @@ export default function App() {
             history: Array.isArray(o.history) ? o.history : [],
             createdAt: dateStr,
             
-            // Novos campos para edição
             shippingPaid: Number(o.shipping_paid ?? o.shipping_value) || 0,
             shippingPlatform: String(o.shipping_platform || 'Melhor Envio'),
             paymentMethod: o.payment_method || 'pix',
@@ -236,13 +235,16 @@ export default function App() {
     if (trackingOrder && trackingOrder.id === orderId) setTrackingOrder(updatedOrder);
 
     try {
-      await supabase.from('pedidos').update({
+      const { error } = await supabase.from('pedidos').update({
         status: updatedOrder.status,
         estornado: updatedOrder.estornado,
         history: updatedOrder.history,
       }).eq('id', orderId);
-    } catch (err) {
+      
+      if (error) throw error;
+    } catch (err: any) {
       console.error('Erro ao atualizar status do pedido no Supabase:', err);
+      alert(`Erro ao atualizar o banco de dados: ${err.message}`);
     }
   };
 
@@ -255,7 +257,7 @@ export default function App() {
     setOrders((prev) => [orderWithCode, ...prev]);
 
     try {
-      await supabase.from('pedidos').insert([
+      const { error } = await supabase.from('pedidos').insert([
         {
           id: orderWithCode.id,
           client_id: (orderWithCode as any).client_id || (orderWithCode as any).clientId || null,
@@ -281,8 +283,10 @@ export default function App() {
           production_cost: orderWithCode.productionCost,
         }
       ]);
-    } catch (err) {
+      if (error) throw error;
+    } catch (err: any) {
       console.error('Erro ao salvar pedido no Supabase:', err);
+      alert(`Erro ao salvar pedido: ${err.message}`);
     }
   };
 
@@ -375,7 +379,7 @@ export default function App() {
     if (trackingOrder && trackingOrder.id === orderWithCode.id) setTrackingOrder(orderWithCode);
 
     try {
-      await supabase.from('pedidos').update({
+      const { error } = await supabase.from('pedidos').update({
         client_name: orderWithCode.clientName,
         client_order_id: clientOrderCode,
         items: orderWithCode.items,
@@ -385,7 +389,6 @@ export default function App() {
         shipping_option: orderWithCode.carrier,
         tracking_code: orderWithCode.trackingCode || '',
         
-        // Atualiza as novas informações editadas
         shipping_paid: orderWithCode.shippingPaid,
         shipping_platform: orderWithCode.shippingPlatform,
         shipping_carrier: orderWithCode.carrier,
@@ -398,8 +401,11 @@ export default function App() {
         is_free_shipping: orderWithCode.isFreeShipping,
         production_cost: orderWithCode.productionCost,
       }).eq('id', orderWithCode.id);
-    } catch (err) {
+      
+      if (error) throw error;
+    } catch (err: any) {
       console.error('Erro ao atualizar pedido no Supabase:', err);
+      alert(`Falha ao gravar no banco de dados: ${err.message}\nCertifique-se de que rodou o comando SQL no Supabase para criar as novas colunas.`);
     }
   };
 
