@@ -51,36 +51,29 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
 }) => {
   const isViewer = userRole === 'leitura';
 
-  // Lista local de itens em edição
   const [items, setItems] = useState<OrderItem[]>([]);
-
-  // Seleção para inclusão de novos produtos do catálogo
   const [selectedProductId, setSelectedProductId] = useState<string>('');
   const [selectedExtraProductId, setSelectedExtraProductId] = useState<string>('');
   const [itemObservacao, setItemObservacao] = useState<string>('');
   const [addQuantity, setAddQuantity] = useState<number>(1);
   const [customPriceOverride, setCustomPriceOverride] = useState<number | ''>('');
 
-  // Fechamento Financeiro, Desconto e Frete Completo
   const [discountPercent, setDiscountPercent] = useState<number | ''>(0);
   const [isFreeShipping, setIsFreeShipping] = useState<boolean>(false);
   const [shippingCharged, setShippingCharged] = useState<number | ''>(0);
   const [shippingPaid, setShippingPaid] = useState<number | ''>(0);
 
-  // Logística e Envio na Edição
   const [shippingPlatform, setShippingPlatform] = useState<ShippingPlatform>('Melhor Envio');
   const [customShippingPlatform, setCustomShippingPlatform] = useState<string>('');
   const [carrier, setCarrier] = useState<ShippingCarrier>('Correios PAC');
   const [customCarrier, setCustomCarrier] = useState<string>('');
   const [trackingCode, setTrackingCode] = useState<string>('');
 
-  // Status de Pagamento e Forma de Pagamento
   const [paymentStatus, setPaymentStatus] = useState<string>('pago');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('pix');
   const [paymentNote, setPaymentNote] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Produtos ordenados conforme a hierarquia do Ateliê
   const sortedProducts = useMemo(() => {
     return [...products].sort(sortProductsHierarchically);
   }, [products]);
@@ -93,7 +86,6 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
     return sortedProducts.filter((p) => p.category === 'Extras');
   }, [sortedProducts]);
 
-  // Carregar dados do pedido ao abrir o modal
   useEffect(() => {
     if (order && isOpen) {
       if (order.items && order.items.length > 0) {
@@ -120,7 +112,6 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
       setShippingCharged(order.shippingCharged || 0);
       setShippingPaid(order.shippingPaid || order.shippingCharged || 0);
 
-      // Plataforma
       const plat = order.shippingPlatform || 'Melhor Envio';
       if (['Melhor Envio', 'Frenet', 'SuperFrete', 'Contrato Correios'].includes(plat)) {
         setShippingPlatform(plat as ShippingPlatform);
@@ -130,7 +121,6 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
         setCustomShippingPlatform(plat);
       }
 
-      // Transportadora
       const transp = order.carrier || 'Correios PAC';
       if (['Correios PAC', 'Correios SEDEX', 'Loggi', 'Transportadora Loggi', 'Jadlog', 'Transportadora J&T Express'].includes(transp)) {
         setCarrier(transp as ShippingCarrier);
@@ -157,10 +147,13 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
 
   if (!isOpen || !order) return null;
 
-  // Cálculos financeiros e de frete em tempo real
   const originalSaleValue = order.originalSaleValue ?? order.saleValue;
-  const subtotal = items.reduce((acc, it) => acc + it.totalPrice, 0);
+  const rawSubtotal = items.reduce((acc, it) => acc + it.totalPrice, 0);
   const totalProductionCost = items.reduce((acc, it) => acc + it.totalCost, 0);
+
+  // Aplica o fator financeiro da forma de pagamento selecionada (ex: juros do cartão ou desconto do Pix)
+  const paymentFactor = PAYMENT_FACTORS[paymentMethod] || 1.0;
+  const subtotal = rawSubtotal * paymentFactor;
 
   const numDiscountPercent = typeof discountPercent === 'number' ? Math.max(0, Math.min(100, discountPercent)) : 0;
   const calculatedDiscount = (subtotal * numDiscountPercent) / 100;
@@ -168,16 +161,13 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
   const numShippingCharged = isFreeShipping ? 0 : (typeof shippingCharged === 'number' ? Math.max(0, shippingCharged) : 0);
   const numShippingPaid = typeof shippingPaid === 'number' ? Math.max(0, shippingPaid) : 0;
 
-  // Valor Total Pago atualizado
   const newSaleValue = Math.max(0, (subtotal - calculatedDiscount) + numShippingCharged);
   const shippingSurplus = numShippingCharged - numShippingPaid;
 
   const productProfit = (subtotal - calculatedDiscount) - totalProductionCost;
   const estimatedProfit = productProfit + shippingSurplus;
   const estimatedMargin = newSaleValue > 0 ? (estimatedProfit / newSaleValue) * 100 : 0;
-  const additionalValue = newSaleValue - originalSaleValue;
 
-  // Manipulação de itens do carrinho no modal de edição
   const handleIncreaseQty = (id: string) => {
     if (isViewer) return;
     setItems((prev) =>
