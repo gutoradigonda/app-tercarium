@@ -17,7 +17,8 @@ import {
   Archive,
   ChevronDown, 
   ChevronUp, 
-  Check
+  Check,
+  Truck
 } from 'lucide-react';
 import { 
   Order, 
@@ -28,6 +29,8 @@ import {
   OrderStatus, 
   ProductCategory, 
   ProductSubCategory,
+  ShippingPlatform,
+  ShippingCarrier,
   PAYMENT_FEE_RATES
 } from '../types/erp';
 import { formatBRL, calculateNextOrderId, gerarCodigoCliente } from '../utils/formatters';
@@ -61,6 +64,9 @@ interface ParsedRow {
   paymentMethod: PaymentMethod;
   shippingCharged: number;
   shippingPaid: number;
+  shippingPlatform: string;
+  carrier: string;
+  trackingCode: string;
   oldOrderId?: string;
   translatedModel: string;
   category: ProductCategory;
@@ -89,6 +95,9 @@ interface GroupedOrderPreview {
   subtotal: number;
   shippingCharged: number;
   shippingPaid: number;
+  shippingPlatform: string;
+  carrier: string;
+  trackingCode: string;
   totalSale: number;
   totalCost: number;
   estimatedNetProfit: number;
@@ -198,16 +207,13 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
     };
   };
 
-  // Regra Financeira Reforçada e Blindada contra Acentos e Posição do "X"
   const detectPaymentMethod = (rawPayment: string): { method: PaymentMethod; isPix: boolean; isCredit: boolean } => {
-    // Normalização bruta: Remove acentos, ç, espaços extras e deixa tudo maiúsculo
     const p = (rawPayment || '').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
     
     if (p.includes('PIX') || p.includes('DINHEIRO') || p.includes('DEP')) {
       return { method: 'pix', isPix: true, isCredit: false };
     }
     
-    // Captura "CARTAO", "CREDIT", "CARD", "CART", "CRED"
     if (p.includes('CART') || p.includes('CREDIT') || p.includes('CARD') || p.includes('CRED')) {
       if (p.includes('2X') || p.includes('X2') || p.includes('2 X') || p.includes('X 2')) return { method: 'credito_2x', isPix: false, isCredit: true };
       if (p.includes('3X') || p.includes('X3') || p.includes('3 X') || p.includes('X 3')) return { method: 'credito_3x', isPix: false, isCredit: true };
@@ -225,7 +231,6 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
       return { method: 'transferencia', isPix: false, isCredit: false };
     }
     
-    // Fallback padrão se não preenchido ou ilegível
     return { method: 'pix', isPix: true, isCredit: false };
   };
 
@@ -330,7 +335,6 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
     const parsedRows: ParsedRow[] = [];
     const clientMap = new Map<string, Client>();
 
-    // Mapeamento tolerante
     const getField = (row: any, ...keys: string[]): any => {
       const rowKeys = Object.keys(row);
       for (const k of keys) {
@@ -389,7 +393,6 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
       const paymentRaw = String(getField(row, 'pagto', 'pagamento', 'forma de pagto', 'forma de pagamento', 'forma pgto') || 'PIX');
       const detectedPayment = detectPaymentMethod(paymentRaw);
 
-      // Leitura Desdobrada do Frete (Cobrado e Pago)
       let shippingChargedVal = 0;
       const rawShippingCharged = getField(row, 'frete cobrado', 'frete', 'envio');
       if (typeof rawShippingCharged === 'number') shippingChargedVal = rawShippingCharged;
@@ -406,13 +409,26 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
         shippingPaidVal = parseFloat(cleanS) || 0;
       }
 
-      // Prevenção: Se a coluna "Frete Pago" não existir, iguala ao cobrado para o DRE ficar neutro
       const hasShippingPaidCol = Object.keys(row).some(k => {
         const cl = k.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
         return cl.includes('frete pago') || cl.includes('frete cotado') || cl.includes('custo frete');
       });
       if (!hasShippingPaidCol && shippingPaidVal === 0 && shippingChargedVal > 0) {
         shippingPaidVal = shippingChargedVal;
+      }
+
+      // Novos campos de logística com regra para Mão Própria
+      let rawPlatform = String(getField(row, 'plataforma', 'plataforma de envio', 'plataforma envio') || '').trim();
+      let rawCarrier = String(getField(row, 'transportadora', 'forma de envio', 'envio via') || '').trim();
+      const rawTracking = String(getField(row, 'rastreio', 'codigo de rastreio', 'rastreamento', 'tracking') || '').trim();
+
+      const combinedShippingText = `${rawPlatform} ${rawCarrier}`.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      if (combinedShippingText.includes('mao propria')) {
+        rawPlatform = 'Mão Própria';
+        rawCarrier = 'Mão Própria';
+      } else {
+        rawPlatform = rawPlatform || 'Melhor Envio';
+        rawCarrier = rawCarrier || 'Correios PAC';
       }
 
       const oldOrderId = String(getField(row, 'pedido', 'num pedido', 'id pedido') || '');
@@ -439,6 +455,9 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
         paymentMethod: detectedPayment.method,
         shippingCharged: shippingChargedVal,
         shippingPaid: shippingPaidVal,
+        shippingPlatform: rawPlatform,
+        carrier: rawCarrier,
+        trackingCode: rawTracking,
         oldOrderId,
         translatedModel: productResolution.translatedModel,
         category: productResolution.category,
@@ -520,7 +539,6 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
       const feeRate = PAYMENT_FEE_RATES[firstRow.paymentMethod] || 0.0;
       const gatewayFee = subtotal * feeRate;
       
-      // Lucro = Venda Produto Líquida - Custo Produção - Taxa Gateway + (Frete Cobrado - Frete Pago)
       const shippingSurplus = totalShippingCharged - totalShippingPaid;
       const estimatedNetProfit = (subtotal - totalCost - gatewayFee) + shippingSurplus;
 
@@ -550,6 +568,9 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
         subtotal,
         shippingCharged: totalShippingCharged,
         shippingPaid: totalShippingPaid,
+        shippingPlatform: firstRow.shippingPlatform,
+        carrier: firstRow.carrier,
+        trackingCode: firstRow.trackingCode,
         totalSale,
         totalCost,
         estimatedNetProfit,
@@ -600,9 +621,10 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
         paymentStatus: 'pago',
         paymentNote: `Importado de planilha (${grp.paymentMethodRaw})`,
         originalSaleValue: grp.totalSale,
-        status: 'entregue' as OrderStatus,
-        shippingPlatform: 'Melhor Envio',
-        carrier: 'Correios PAC',
+        status: (grp.trackingCode ? 'despachado' : 'entregue') as OrderStatus,
+        shippingPlatform: (grp.shippingPlatform || 'Melhor Envio') as ShippingPlatform,
+        carrier: (grp.carrier || 'Correios PAC') as ShippingCarrier,
+        trackingCode: grp.trackingCode,
         createdAt: grp.orderDate,
         notes: `Histórico importado via ETL. ${grp.items.length} ${grp.items.length === 1 ? 'item agrupado' : 'itens agrupados'}. Agrupamento inteligente por CPF + DATA.`,
         history: [
@@ -641,6 +663,9 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
         PAGTO: 'PIX',
         'FRETE COBRADO': 22.00,
         'FRETE PAGO': 20.00,
+        PLATAFORMA: 'Melhor Envio',
+        TRANSPORTADORA: 'Correios PAC',
+        RASTREIO: 'JD123456789BR'
       },
       {
         CPF: '123.456.789-00',
@@ -658,6 +683,9 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
         PAGTO: 'PIX',
         'FRETE COBRADO': 0,
         'FRETE PAGO': 0,
+        PLATAFORMA: '',
+        TRANSPORTADORA: '',
+        RASTREIO: ''
       },
       {
         CPF: '987.654.321-11',
@@ -675,6 +703,9 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
         PAGTO: 'CARTÃO',
         'FRETE COBRADO': 28.00,
         'FRETE PAGO': 25.50,
+        PLATAFORMA: 'SuperFrete',
+        TRANSPORTADORA: 'Correios SEDEX',
+        RASTREIO: ''
       },
       {
         CPF: '555.444.333-22',
@@ -692,24 +723,10 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
         PAGTO: 'PIX',
         'FRETE COBRADO': 20.00,
         'FRETE PAGO': 20.00,
-      },
-      {
-        CPF: '777.888.999-00',
-        DATA: '18/10/2026',
-        CLIENTE: 'Renato Antunes',
-        TELEFONE: '(41) 97766-5544',
-        EMAIL: '',
-        ENDERECO: 'Rua XV de Novembro, 250',
-        CIDADE: 'Curitiba',
-        ESTADO: 'PR',
-        CEP: '80020-310',
-        MODELO: 'Rosário Rústico Madeira Especial Edição 2023',
-        PRECO: 89.00,
-        QTD: 1,
-        PAGTO: 'CARTÃO 3X',
-        'FRETE COBRADO': 25.00,
-        'FRETE PAGO': 22.00,
-      },
+        PLATAFORMA: 'Mão Própria',
+        TRANSPORTADORA: 'Mão Própria',
+        RASTREIO: ''
+      }
     ];
 
     const ws = XLSX.utils.json_to_sheet(templateData);
@@ -736,6 +753,9 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
         pagto: 'PIX',
         'frete cobrado': 22.00,
         'frete pago': 20.00,
+        plataforma: 'Melhor Envio',
+        transportadora: 'Correios PAC',
+        rastreio: 'BR123456789BR'
       },
       {
         cpf: '123.456.789-00',
@@ -770,6 +790,8 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
         pagto: 'CARTÃO 2X',
         'frete cobrado': 28.00,
         'frete pago': 25.50,
+        plataforma: 'SuperFrete',
+        transportadora: 'Correios SEDEX'
       },
       {
         cpf: '555.444.333-22',
@@ -785,8 +807,9 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
         preco: 74.90,
         qtd: 1,
         pagto: 'PIX',
-        'frete cobrado': 20.00,
-        'frete pago': 20.00,
+        'frete cobrado': 0.00,
+        'frete pago': 0.00,
+        transportadora: 'Mão Propria'
       },
       {
         cpf: '777.888.999-00',
@@ -1112,7 +1135,7 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
                     <th className="py-3 px-4">Itens Agrupados</th>
                     <th className="py-3 px-4">Pagamento / Taxa</th>
                     <th className="py-3 px-4 text-right">Subtotal</th>
-                    <th className="py-3 px-4 text-right">Frete (Cobrado / Pago)</th>
+                    <th className="py-3 px-4 text-right">Frete / Logística</th>
                     <th className="py-3 px-4 text-right">Total Pedido</th>
                     <th className="py-3 px-4 text-center">Ações</th>
                   </tr>
@@ -1191,9 +1214,13 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
                             <div className="text-slate-800 font-bold">
                               {order.shippingCharged > 0 ? formatBRL(order.shippingCharged) : 'Grátis'}
                             </div>
+                            <div className="text-[10px] text-slate-400 flex items-center justify-end gap-1 mt-0.5">
+                              <Truck className="w-3 h-3" />
+                              {order.carrier}
+                            </div>
                             {order.shippingPaid > 0 && order.shippingPaid !== order.shippingCharged && (
-                              <div className="text-[10px] text-slate-400">
-                                Custo: {formatBRL(order.shippingPaid)}
+                              <div className="text-[10px] text-slate-400 mt-0.5">
+                                Custo Pago: {formatBRL(order.shippingPaid)}
                               </div>
                             )}
                           </td>
@@ -1227,7 +1254,10 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
                               <div className="space-y-2">
                                 <div className="flex items-center justify-between text-[11px] text-amber-900 font-semibold border-b border-amber-200/60 pb-1">
                                   <span>Composição do Carrinho de Compras (#{order.orderId}):</span>
-                                  <span>Total de Peças: {order.items.reduce((s, i) => s + i.quantity, 0)}</span>
+                                  <div className="flex gap-4">
+                                    {order.trackingCode && <span>Rastreio: {order.trackingCode}</span>}
+                                    <span>Total de Peças: {order.items.reduce((s, i) => s + i.quantity, 0)}</span>
+                                  </div>
                                 </div>
 
                                 <div className="grid grid-cols-1 divide-y divide-amber-100 text-[11px]">
