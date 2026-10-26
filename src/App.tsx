@@ -129,6 +129,8 @@ export default function App() {
           const addressVal = matchedClient?.address || o.client_address || o.clientAddress || '';
           const cepVal = matchedClient?.cep || o.client_cep || o.clientCep || '';
           const phoneVal = matchedClient?.phone || o.client_phone || o.clientPhone || '';
+          const cpfVal = matchedClient?.cpf || o.client_cpf || o.clientCpf || '';
+          const emailVal = matchedClient?.email || o.client_email || o.clientEmail || '';
 
           return {
             ...o,
@@ -136,6 +138,8 @@ export default function App() {
             clientId: String(o.client_id || o.clientId || ''),
             clientName: String(clientNameVal),
             clientPhone: String(phoneVal),
+            clientCpf: String(cpfVal),
+            clientEmail: String(emailVal),
             clientAddress: String(addressVal),
             clientCity: String(cityVal),
             clientState: String(stateVal),
@@ -209,7 +213,7 @@ export default function App() {
     return true;
   };
 
-  // FUNÇÃO DE BACKUP GERAL (MÚLTIPLAS ABAS NO EXCEL)
+  // FUNÇÃO DE BACKUP GERAL (MÚLTIPLAS ABAS NO EXCEL COM DADOS CRUZADOS)
   const handleBackupGeral = () => {
     // 1. Aba de Clientes
     const clientesData = clients.map((c: any) => ({
@@ -224,8 +228,15 @@ export default function App() {
       'Data Cadastro': c.createdAt || ''
     }));
 
-    // 2. Aba de Pedidos Completa
+    // 2. Aba de Pedidos Completa (Buscando CPF e E-mail da tabela/lista de Clientes)
     const pedidosData = orders.map((o: any) => {
+      const matchedClient = clients.find(c => c.id === o.clientId || (c.name && o.clientName && c.name.toLowerCase().trim() === o.clientName.toLowerCase().trim()));
+
+      const clientCpf = o.clientCpf || matchedClient?.cpf || '';
+      const clientEmail = o.clientEmail || matchedClient?.email || '';
+      const clientPhone = o.clientPhone || matchedClient?.phone || '';
+      const clientAddress = o.clientAddress || matchedClient?.address || '';
+
       const itensFormatados = o.items && o.items.length > 0
         ? o.items.map((i: any) => `${i.quantity || 1}x ${i.model || ''} (Cód: ${i.code || ''})${i.observacao ? ` [Obs: ${i.observacao}]` : ''}`).join(' | ')
         : `${o.item || ''} - ${o.itemModel || ''}`;
@@ -235,10 +246,10 @@ export default function App() {
         'Pedido Cliente': o.codigoCliente || '',
         'Data': o.createdAt || '',
         'Cliente': o.clientName || '',
-        'CPF': o.clientCpf || '',
-        'Telefone': o.clientPhone || '',
-        'E-mail': o.clientEmail || '',
-        'Endereço': o.clientAddress || '',
+        'CPF': clientCpf,
+        'Telefone': clientPhone,
+        'E-mail': clientEmail,
+        'Endereço': clientAddress,
         'Cidade': o.clientCity || '',
         'UF': o.clientState || '',
         'Itens do Pedido': itensFormatados,
