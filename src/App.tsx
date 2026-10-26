@@ -104,7 +104,6 @@ export default function App() {
         setClients(mappedClients);
       }
 
-      // Busca simples e segura na tabela de pedidos (sem joins que podem quebrar a query)
       const { data: ordersData, error: ordersError } = await supabase.from('pedidos').select('*');
 
       if (!ordersError && ordersData) {
@@ -120,8 +119,6 @@ export default function App() {
           }
 
           const clientOrderIdVal = getClientOrderCode(o);
-          
-          // Procura o cliente correspondente pelo ID ou pelo nome para resgatar a cidade e o estado corretos
           const matchedClient = mappedClients.find(c => c.id === (o.client_id || o.clientId) || (c.name && o.client_name && c.name.toLowerCase().trim() === o.client_name.toLowerCase().trim()));
 
           const cityVal = matchedClient?.city || o.client_city || o.clientCity || 'Londrina';
@@ -141,12 +138,23 @@ export default function App() {
             saleValue: Number(o.total_value) || 0,
             shippingCharged: Number(o.shipping_value) || 0,
             status: o.status || 'em_producao',
-            carrier: String(o.shipping_option || 'Correios PAC'),
+            carrier: String(o.shipping_carrier || o.shipping_option || 'Correios PAC'),
             trackingCode: String(o.tracking_code || ''),
             estornado: Boolean(o.estornado),
             history: Array.isArray(o.history) ? o.history : [],
             createdAt: dateStr,
+            
+            // Novos campos para edição
+            shippingPaid: Number(o.shipping_paid ?? o.shipping_value) || 0,
+            shippingPlatform: String(o.shipping_platform || 'Melhor Envio'),
             paymentMethod: o.payment_method || 'pix',
+            paymentStatus: o.payment_status || 'pago',
+            paymentNote: o.payment_note || '',
+            subtotal: Number(o.subtotal) || Number(o.total_value) || 0,
+            discountPercent: Number(o.discount_percent) || 0,
+            discount: Number(o.discount_value) || 0,
+            isFreeShipping: Boolean(o.is_free_shipping),
+            productionCost: Number(o.production_cost) || 0,
           };
         });
         setOrders(mappedOrders);
@@ -186,7 +194,6 @@ export default function App() {
     }
   };
 
-  // --- CADEADO DE SEGURANÇA CENTRAL ---
   const checkPermission = (actionName: string) => {
     if (userRole === 'leitura') {
       alert(`Acesso Negado: O seu perfil (Leitura) não permite ${actionName}.`);
@@ -202,11 +209,9 @@ export default function App() {
     const timestamp = `${now.getDate().toString().padStart(2, '0')}/${(now.getMonth() + 1).toString().padStart(2, '0')} ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
     const isCancelledOrRefunded = newStatus === 'cancelado' || newStatus === 'cancelado_estornado';
 
-    // 1. Encontra o pedido atual na memória
     const orderToUpdate = orders.find(o => o.id === orderId);
     if (!orderToUpdate) return;
 
-    // 2. Prepara o pedido 100% atualizado
     const updatedHistory = [
       ...(orderToUpdate.history || []),
       {
@@ -226,12 +231,10 @@ export default function App() {
       history: updatedHistory,
     };
 
-    // 3. Atualiza a tela (Estado Visual do React)
     setOrders(prev => prev.map(o => o.id === orderId ? updatedOrder : o));
     if (selectedOrder && selectedOrder.id === orderId) setSelectedOrder(updatedOrder);
     if (trackingOrder && trackingOrder.id === orderId) setTrackingOrder(updatedOrder);
 
-    // 4. Salva no banco de dados IMEDIATAMENTE e com os dados certos
     try {
       await supabase.from('pedidos').update({
         status: updatedOrder.status,
@@ -264,6 +267,18 @@ export default function App() {
           status: orderWithCode.status,
           shipping_option: orderWithCode.carrier,
           tracking_code: orderWithCode.trackingCode || '',
+          
+          shipping_paid: orderWithCode.shippingPaid,
+          shipping_platform: orderWithCode.shippingPlatform,
+          shipping_carrier: orderWithCode.carrier,
+          payment_method: orderWithCode.paymentMethod,
+          payment_status: orderWithCode.paymentStatus,
+          payment_note: orderWithCode.paymentNote,
+          subtotal: orderWithCode.subtotal,
+          discount_percent: orderWithCode.discountPercent,
+          discount_value: orderWithCode.discount,
+          is_free_shipping: orderWithCode.isFreeShipping,
+          production_cost: orderWithCode.productionCost,
         }
       ]);
     } catch (err) {
@@ -303,7 +318,6 @@ export default function App() {
         const ordersPayload = newOrders.map((o: any) => {
           const clientOrderCode = getClientOrderCode(o);
 
-          // Conversão rigorosa da data DD/MM/AAAA da planilha para o formato do Supabase
           let parsedDate = undefined;
           if (o.createdAt && o.createdAt.includes('/')) {
             const parts = o.createdAt.split('/');
@@ -311,7 +325,6 @@ export default function App() {
               const year = parts[2].length === 2 ? `20${parts[2]}` : parts[2];
               const month = parts[1].padStart(2, '0');
               const day = parts[0].padStart(2, '0');
-              // Fixado às 12:00h UTC para evitar que variações de fuso horário alterem o dia
               parsedDate = `${year}-${month}-${day}T12:00:00.000Z`;
             }
           }
@@ -327,7 +340,19 @@ export default function App() {
             status: o.status || 'em_producao',
             shipping_option: o.carrier || 'Correios PAC',
             tracking_code: o.trackingCode || '',
-            created_at: parsedDate // Força o Supabase a utilizar a data da planilha
+            created_at: parsedDate,
+            
+            shipping_paid: o.shippingPaid || o.shippingCharged || 0,
+            shipping_platform: o.shippingPlatform || 'Melhor Envio',
+            shipping_carrier: o.carrier || 'Correios PAC',
+            payment_method: o.paymentMethod || 'pix',
+            payment_status: o.paymentStatus || 'pago',
+            payment_note: o.paymentNote || '',
+            subtotal: o.subtotal || o.saleValue || 0,
+            discount_percent: o.discountPercent || 0,
+            discount_value: o.discount || 0,
+            is_free_shipping: Boolean(o.isFreeShipping),
+            production_cost: o.productionCost || 0,
           };
         });
 
@@ -359,6 +384,19 @@ export default function App() {
         status: orderWithCode.status,
         shipping_option: orderWithCode.carrier,
         tracking_code: orderWithCode.trackingCode || '',
+        
+        // Atualiza as novas informações editadas
+        shipping_paid: orderWithCode.shippingPaid,
+        shipping_platform: orderWithCode.shippingPlatform,
+        shipping_carrier: orderWithCode.carrier,
+        payment_method: orderWithCode.paymentMethod,
+        payment_status: orderWithCode.paymentStatus,
+        payment_note: orderWithCode.paymentNote,
+        subtotal: orderWithCode.subtotal,
+        discount_percent: orderWithCode.discountPercent,
+        discount_value: orderWithCode.discount,
+        is_free_shipping: orderWithCode.isFreeShipping,
+        production_cost: orderWithCode.productionCost,
       }).eq('id', orderWithCode.id);
     } catch (err) {
       console.error('Erro ao atualizar pedido no Supabase:', err);
@@ -442,7 +480,7 @@ export default function App() {
         subcategory: newProduct.subCategory || '',
         cost_price: Number(newProduct.costPrice) || 0,
         sale_price: Number(newProduct.salePrice) || 0,
-        stock: Number(newProduct.stock ?? newProduct.stockQuantity ?? newProduct.estoque) || 0,
+        stock: Number(newProduct.stock ?? newProduct.stockQuantity ?? (newProduct as any).estoque) || 0,
       };
 
       await supabase.from('produtos').insert([payload]);
@@ -477,7 +515,7 @@ export default function App() {
         subcategory: p.subCategory || '',
         cost_price: Number(p.costPrice) || 0,
         sale_price: Number(p.salePrice) || 0,
-        stock: Number(p.stock ?? p.stockQuantity ?? p.estoque) || 0,
+        stock: Number(p.stock ?? p.stockQuantity ?? (p as any).estoque) || 0,
       }));
 
       await supabase.from('produtos').insert(productsPayload);
@@ -499,7 +537,7 @@ export default function App() {
         subcategory: updatedProduct.subCategory,
         cost_price: updatedProduct.costPrice,
         sale_price: updatedProduct.salePrice,
-        stock: Number(updatedProduct.stock ?? updatedProduct.stockQuantity ?? updatedProduct.estoque) || 0,
+        stock: Number(updatedProduct.stock ?? updatedProduct.stockQuantity ?? (updatedProduct as any).estoque) || 0,
       }).eq('id', updatedProduct.id);
     } catch (err) {
       console.error('Erro ao atualizar produto no Supabase:', err);
