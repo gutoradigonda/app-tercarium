@@ -198,9 +198,9 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
     };
   };
 
-  // Regra Financeira Reforçada e Blindada contra Acentos
+  // Regra Financeira Reforçada e Blindada contra Acentos e Posição do "X"
   const detectPaymentMethod = (rawPayment: string): { method: PaymentMethod; isPix: boolean; isCredit: boolean } => {
-    // Normalização bruta: Remove acentos, ç, espaços vazios extras e deixa tudo maiúsculo
+    // Normalização bruta: Remove acentos, ç, espaços extras e deixa tudo maiúsculo
     const p = (rawPayment || '').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
     
     if (p.includes('PIX') || p.includes('DINHEIRO') || p.includes('DEP')) {
@@ -209,11 +209,12 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
     
     // Captura "CARTAO", "CREDIT", "CARD", "CART", "CRED"
     if (p.includes('CART') || p.includes('CREDIT') || p.includes('CARD') || p.includes('CRED')) {
-      if (p.includes('2X')) return { method: 'credito_2x', isPix: false, isCredit: true };
-      if (p.includes('3X')) return { method: 'credito_3x', isPix: false, isCredit: true };
-      if (p.includes('4X')) return { method: 'credito_4x', isPix: false, isCredit: true };
-      if (p.includes('5X')) return { method: 'credito_5x', isPix: false, isCredit: true };
-      if (p.includes('6X')) return { method: 'credito_6x', isPix: false, isCredit: true };
+      if (p.includes('2X') || p.includes('X2') || p.includes('2 X') || p.includes('X 2')) return { method: 'credito_2x', isPix: false, isCredit: true };
+      if (p.includes('3X') || p.includes('X3') || p.includes('3 X') || p.includes('X 3')) return { method: 'credito_3x', isPix: false, isCredit: true };
+      if (p.includes('4X') || p.includes('X4') || p.includes('4 X') || p.includes('X 4')) return { method: 'credito_4x', isPix: false, isCredit: true };
+      if (p.includes('5X') || p.includes('X5') || p.includes('5 X') || p.includes('X 5')) return { method: 'credito_5x', isPix: false, isCredit: true };
+      if (p.includes('6X') || p.includes('X6') || p.includes('6 X') || p.includes('X 6')) return { method: 'credito_6x', isPix: false, isCredit: true };
+      
       return { method: 'credito_1x', isPix: false, isCredit: true };
     }
     
@@ -800,7 +801,7 @@ export const ImportacaoHistorico: React.FC<ImportacaoHistoricoProps> = ({
         modelo: 'Rosário Rústico Madeira Especial Edição 2023',
         preco: 89.00,
         qtd: 1,
-        pagto: 'CARTÃO 1X',
+        pagto: 'CARTÃO x1',
         'frete cobrado': 25.00,
         'frete pago': 22.00,
       },
