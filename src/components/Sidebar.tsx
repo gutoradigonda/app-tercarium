@@ -16,7 +16,8 @@ import {
   Eye,
   Receipt,
   FileSpreadsheet,
-  UserCheck
+  UserCheck,
+  Database
 } from 'lucide-react';
 import { Order, Client, Product, UserRole } from '../types/erp';
 
@@ -31,7 +32,8 @@ export type TabType =
   | 'despesas' 
   | 'logistica'
   | 'importacao-historico'
-  | 'usuarios';
+  | 'usuarios'
+  | 'backup-geral';
 
 interface SidebarProps {
   currentTab: TabType;
@@ -137,6 +139,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: UserCheck,
       badge: 'RBAC',
       description: 'Utilizadores, perfis e permissões',
+    },
+    {
+      id: 'backup-geral' as TabType,
+      label: 'Backup Geral',
+      icon: Database,
+      badge: 'Excel',
+      description: 'Exportação completa multi-abas',
     },
   ];
 
