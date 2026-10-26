@@ -180,7 +180,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
     }
   }, [activeFilterPopover]);
 
-  // Função de Exportação Completa Atualizada
+  // FUNÇÃO DE EXPORTAÇÃO COMPLETA PARA BANCO DE DADOS E BACKUP
   const handleExport = () => {
     setToastMessage('Download do relatório completo em CSV iniciado...');
     setTimeout(() => setToastMessage(null), 3500);
@@ -205,6 +205,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
     ];
 
     const rows = filteredOrders.map((o) => {
+      // Junta todos os itens do pedido com suas quantidades e observações em uma única string formatada
       const itensFormatados = o.items && o.items.length > 0
         ? o.items.map(i => `${i.quantity || 1}x ${i.model || ''} (Cód: ${i.code || ''})${i.observacao ? ` [Obs: ${i.observacao}]` : ''}`).join(' | ')
         : `${o.item || ''} - ${o.itemModel || ''}`;
