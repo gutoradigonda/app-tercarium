@@ -134,15 +134,15 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
   const [quickSalePrice, setQuickSalePrice] = useState<number | ''>(160);
   const [quickProductError, setQuickProductError] = useState<string | null>(null);
 
-  const [discountPercent, setDiscountPercent] = useState<number | ''>(5); // Padrão inicial 5% para Pix
+  const [discountPercent, setDiscountPercent] = useState<number | ''>(5); 
   const [isFreeShipping, setIsFreeShipping] = useState<boolean>(false);
   const [shippingCharged, setShippingCharged] = useState<number | ''>(22);
   const [shippingPaid, setShippingPaid] = useState<number | ''>(22);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('pix');
 
-  // Efeito automático: Se a forma de pagamento for PIX, define 5% de desconto automático
+  // Efeito automático: Para PIX, Transferência e Boleto, aplica 5% de desconto automático. Para Cartão, zera o desconto padrão.
   useEffect(() => {
-    if (paymentMethod === 'pix') {
+    if (paymentMethod === 'pix' || paymentMethod === 'transferencia' || paymentMethod === 'boleto') {
       setDiscountPercent(5);
     } else {
       setDiscountPercent(0);
@@ -434,13 +434,13 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
 
   const saleValue = Math.max(0, (subtotal - calculatedDiscount) + numShippingCharged);
 
+  // APLICAÇÃO CORRETA DOS FATORES DE TAXA (DESCONTO DO PIX/BOLETO/TRANSF VS TAXAS DE CARTÃO)
   const factor = PAYMENT_FACTORS[paymentMethod] ?? 1.0;
-  const netProductSale = Math.max(0, subtotal - calculatedDiscount);
-  const netPrice = netProductSale * factor;
+  const netProductSale = Math.max(0, (subtotal - calculatedDiscount) * factor);
 
   const shippingSurplus = numShippingCharged - numShippingPaid;
 
-  const productProfit = (subtotal - calculatedDiscount) - totalProductionCost;
+  const productProfit = netProductSale - totalProductionCost;
   const estimatedProfit = productProfit + shippingSurplus;
   const estimatedMargin = saleValue > 0 ? (estimatedProfit / saleValue) * 100 : 0;
 
@@ -539,7 +539,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
       items: cartItems,
       item: summaryItem,
       itemModel: summaryModel,
-      subtotal,
+      subtotal: netProductSale,
       discountPercent: numDiscountPercent,
       discount: calculatedDiscount,
       isFreeShipping,
