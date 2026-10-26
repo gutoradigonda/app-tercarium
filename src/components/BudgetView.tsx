@@ -386,6 +386,52 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
     setTimeout(() => setToastNotice(null), 3000);
   };
 
+  // --- Função para copiar os fretes para WhatsApp ---
+  const handleCopyFreightOptions = async () => {
+    if (dadosCotacoes.length === 0) return;
+
+    const selecionados: Record<string, CarrierOption> = {};
+
+    dadosCotacoes.forEach((opcao) => {
+      const tUpper = opcao.transportadora.toUpperCase();
+      let categoria = '';
+
+      if (tUpper.includes('PAC')) categoria = 'PAC';
+      else if (tUpper.includes('SEDEX')) categoria = 'SEDEX';
+      else if (tUpper.includes('J&T') || tUpper.includes('JET')) categoria = 'JET';
+      else if (tUpper.includes('LOGGI')) categoria = 'LOGGI';
+
+      if (categoria !== '') {
+        if (!selecionados[categoria] || opcao.preco < selecionados[categoria].preco) {
+          selecionados[categoria] = opcao;
+        }
+      }
+    });
+
+    const opcoesFiltradas = Object.values(selecionados).sort((a, b) => a.preco - b.preco);
+
+    let mensagem = `As opções de frete para ${cidadeEstado || `CEP ${cepDestino}`} são:\n\n`;
+
+    opcoesFiltradas.forEach((opcao) => {
+      const precoFinalCliente = getCustomerPrice(opcao.preco);
+      const { min, max } = getCustomerWindow(opcao.prazo);
+
+      mensagem += `Transportadora: ${opcao.transportadora}\n`;
+      mensagem += `Prazo estimado: ${min} a ${max} dias úteis\n`;
+      mensagem += `Valor: R$ ${precoFinalCliente.toFixed(2).replace('.', ',')}\n\n`;
+    });
+
+    mensagem += `Qual opção fica melhor pra você?`;
+
+    try {
+      await navigator.clipboard.writeText(mensagem);
+      setToastNotice('Opções de frete copiadas para o WhatsApp!');
+      setTimeout(() => setToastNotice(null), 2500);
+    } catch (err) {
+      console.error('Falha ao copiar:', err);
+    }
+  };
+
   const resolvePlatformOrig = (data?: PrefilledFreightData | null) => {
     const plat = data?.plataformaSelecionada || data?.plataforma || '';
     if (plat) {
@@ -471,6 +517,8 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
       const carrierResolved = resolveCarrierOrig(prefilledFreight);
       setSelectedShippingOption(carrierResolved.option as ShippingOption);
       setCustomShippingOption(carrierResolved.custom);
+
+      setPrefilledNotice(`Frete importado da Cotação`);
     }
   }, [prefilledFreight]);
 
@@ -576,7 +624,6 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
     }
   };
 
-  // --- NOVA FUNÇÃO PARA CARREGAR UM ORÇAMENTO PARA EDIÇÃO ---
   const handleEditSavedBudget = (b: SavedBudget) => {
     setEditingBudgetId(b.id);
     setLeadName(b.leadName === 'Interessado' ? '' : b.leadName);
@@ -613,7 +660,6 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // --- ATUALIZADA PARA INSERIR OU ATUALIZAR ---
   const handleSaveBudget = async () => {
     if (items.length === 0) return;
     
@@ -640,7 +686,6 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
 
     try {
       if (editingBudgetId) {
-        // Atualiza orçamento existente
         const { error } = await supabase.from('orcamentos').update({
           client_name: newBudget.leadName,
           items: newBudget.items,
@@ -662,7 +707,6 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
         setToastNotice(`Orçamento atualizado com sucesso!`);
         setEditingBudgetId(null);
       } else {
-        // Cria novo orçamento
         const { error } = await supabase.from('orcamentos').insert([
           {
             id: newBudget.id,
@@ -699,7 +743,7 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
   const handleDeleteSavedBudget = async (id: string) => {
     setSavedBudgets((prev) => prev.filter((b) => b.id !== id));
     if (editingBudgetId === id) {
-      handleReset(); // Limpa o formulário caso esteja a apagar o orçamento que está a ser editado
+      handleReset(); 
     }
     try {
       await supabase.from('orcamentos').delete().eq('id', id);
@@ -1220,11 +1264,20 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
             {/* TABELA DE COTAÇÃO - VISÃO DO CLIENTE */}
             {activeFreightView === 'cliente' && !isSearchingFreight && (
               <div className="space-y-4 animate-in fade-in duration-150">
-                <div className="flex items-center justify-between text-xs bg-amber-50 p-2 rounded-lg border border-amber-200">
+                <div className="flex items-center justify-between text-xs bg-amber-50 p-2 rounded-lg border border-amber-200 flex-wrap gap-2">
                   <div className="flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-amber-600" />
                     <span className="font-semibold text-amber-900">Valores para Apresentar ao Cliente (Com Margem)</span>
                   </div>
+                  <button
+                    type="button"
+                    onClick={handleCopyFreightOptions}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md font-bold shadow-sm transition-colors cursor-pointer"
+                    title="Copiar lista de fretes para enviar no WhatsApp"
+                  >
+                    <MessageSquare className="w-3.5 h-3.5" />
+                    Copiar Opções (WhatsApp)
+                  </button>
                 </div>
 
                 <div className="border border-slate-200 rounded-xl overflow-hidden shadow-xs">
@@ -1236,8 +1289,8 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
                           <th className="py-2.5 px-3 w-28 text-amber-400">Parceiro</th>
                           <th className="py-2.5 px-3 text-slate-200">Transportadora & Serviço</th>
                           <th className="py-2.5 px-3 w-32 text-slate-200">Prazo Estimado</th>
-                          <th className="py-2.5 px-3 text-right w-36 text-emerald-400">Valor p/ Cliente</th>
-                          <th className="py-2.5 px-3 text-center w-36 text-slate-300">Ação</th>
+                          <th className="py-2.5 px-3 text-right w-36 text-emerald-400">Valor</th>
+                          <th className="py-2.5 px-3 text-center w-28 text-slate-300">Ação</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 text-xs bg-white">
@@ -1308,7 +1361,7 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
                                   className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 transition-colors cursor-pointer shadow-2xs whitespace-nowrap"
                                 >
                                   <Sparkles className="w-3 h-3" />
-                                  <span>Usar no Orçamento</span>
+                                  <span>USAR</span>
                                 </button>
                               </td>
                             </tr>
