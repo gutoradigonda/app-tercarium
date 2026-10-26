@@ -23,7 +23,6 @@ export function calculateFinancialMetrics(order: Order): FinancialMetrics {
   const shippingPaid = order.shippingPaid ?? 0;
 
   // A SOBRA DO FRETE = (Frete Cobrado - Frete Cotado)
-  // Se for frete grátis (shippingCharged = 0), a conta é (0 - Frete Cotado), abatendo o custo do frete do lucro
   const shippingSurplus = shippingCharged - shippingPaid;
   const shippingCost = shippingPaid - shippingCharged;
 
@@ -36,9 +35,9 @@ export function calculateFinancialMetrics(order: Order): FinancialMetrics {
   // Preço líquido considerando fator financeiro de gateway (quando aplicável)
   const netPrice = netProductSale * discountFactor;
 
-  // FÓRMULA EXATA DO LUCRO LÍQUIDO REAL COM TAXAS DE PARCELAMENTO NA MARGEM:
-  // (Venda Líquida - Custo Produtos - Taxa Gateway) + (Frete Cobrado - Frete Cotado)
-  const netProfit = (netProductSale - productionCost - gatewayFee) + shippingSurplus;
+  // FÓRMULA EXATA DO LUCRO LÍQUIDO REAL:
+  // Preço Líquido Recebido (Já descontado Gateway) - Custo dos Produtos (Produção) + Sobra do Frete (Positiva ou Negativa)
+  const netProfit = (netPrice - productionCost) + shippingSurplus;
 
   // Lucro dos Produtos puro após taxa de gateway
   const productProfit = netPrice - productionCost;
@@ -471,4 +470,3 @@ export function gerarCodigoCliente(): string {
   
   return `${l}${d}`;
 }
-
