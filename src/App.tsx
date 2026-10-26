@@ -215,7 +215,6 @@ export default function App() {
 
   // FUNÇÃO DE BACKUP GERAL (MÚLTIPLAS ABAS NO EXCEL COM DADOS CRUZADOS)
   const handleBackupGeral = () => {
-    // 1. Aba de Clientes
     const clientesData = clients.map((c: any) => ({
       'ID Cliente': c.id || '',
       'Nome': c.name || '',
@@ -228,7 +227,6 @@ export default function App() {
       'Data Cadastro': c.createdAt || ''
     }));
 
-    // 2. Aba de Pedidos Completa (Buscando CPF e E-mail da tabela/lista de Clientes)
     const pedidosData = orders.map((o: any) => {
       const matchedClient = clients.find(c => c.id === o.clientId || (c.name && o.clientName && c.name.toLowerCase().trim() === o.clientName.toLowerCase().trim()));
 
@@ -261,7 +259,6 @@ export default function App() {
       };
     });
 
-    // 3. Aba de Logística
     const logisticaData = orders.map((o: any) => ({
       'Pedido Interno': o.id || '',
       'Cliente': o.clientName || '',
@@ -273,7 +270,6 @@ export default function App() {
       'Status de Envio': o.status || ''
     }));
 
-    // 4. Aba de Financeiro
     const financeiroData = orders.map((o: any) => ({
       'Data': o.createdAt || '',
       'Pedido': o.id || '',
@@ -284,7 +280,6 @@ export default function App() {
       'Valor Líquido Produtos (R$)': Number(o.subtotal || o.saleValue || 0)
     }));
 
-    // 5. Aba de Despesas
     const despesasData = expenses.map((e: any) => ({
       'ID Despesa': e.id || '',
       'Data': e.date || '',
@@ -294,7 +289,6 @@ export default function App() {
       'Status': e.status || 'pendente'
     }));
 
-    // Cria o Livro e Adiciona as Abas
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(clientesData), 'Clientes');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(pedidosData), 'Pedidos');
@@ -765,7 +759,6 @@ export default function App() {
     }
   };
 
-  // Intercepta a seleção da aba de Backup Geral para disparar direto o download do excel
   const handleSelectTab = (tab: TabType) => {
     if (tab === 'backup-geral') {
       handleBackupGeral();
@@ -811,11 +804,16 @@ export default function App() {
     const cobrado = typeof freightData.freteCobrado === 'number' ? freightData.freteCobrado : (freightData.precoFinalCliente ?? 28);
     const cotado = typeof freightData.freteCotado === 'number' ? freightData.freteCotado : cobrado;
 
+    // Correção: Passando todos os dados de frete e transportadora para o modal de novo pedido
     setNewOrderInitialData({
       shippingCharged: cobrado,
       shippingPaid: cotado,
       carrier,
+      customCarrier: transp,
       shippingPlatform,
+      customShippingPlatform: plat,
+      plataformaSelecionada: plat,
+      transportadoraSelecionada: transp,
       paymentMethod: 'pix',
       notes: `Frete importado da Cotação`,
     });
@@ -838,13 +836,21 @@ export default function App() {
       totalCost: it.quantity * Math.round(it.unitPrice * 0.35),
     }));
 
+    // Correção: Puxando corretamente frete cobrado, cotado, transportadora e plataforma do orçamento salvo
+    const freteCobradoVal = typeof budget.freteCobrado === 'number' ? budget.freteCobrado : (budget.shippingValue || 0);
+    const freteCotadoVal = typeof budget.freteCotado === 'number' ? budget.freteCotado : freteCobradoVal;
+    const transportadoraVal = (budget.shippingOption || 'Correios PAC') as ShippingCarrier;
+    const plataformaVal = (budget.shippingPlatform || 'Melhor Envio') as ShippingPlatform;
+
     setNewOrderInitialData({
       clientId: client.id,
       items: orderItems,
-      shippingCharged: budget.shippingValue,
-      shippingPaid: budget.shippingValue,
-      carrier: 'Correios PAC',
-      shippingPlatform: 'Melhor Envio',
+      shippingCharged: freteCobradoVal,
+      shippingPaid: freteCotadoVal,
+      carrier: transportadoraVal,
+      shippingPlatform: plataformaVal,
+      plataformaSelecionada: plataformaVal,
+      transportadoraSelecionada: transportadoraVal,
       paymentMethod: 'pix',
       notes: `Convertido do Orçamento ${budget.id}`,
     });
