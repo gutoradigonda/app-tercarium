@@ -386,7 +386,6 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
     setTimeout(() => setToastNotice(null), 3000);
   };
 
-  // --- Função para copiar os fretes para WhatsApp ---
   const handleCopyFreightOptions = async () => {
     if (dadosCotacoes.length === 0) return;
 
@@ -705,7 +704,6 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
 
         setSavedBudgets((prev) => prev.map(b => b.id === editingBudgetId ? newBudget : b));
         setToastNotice(`Orçamento atualizado com sucesso!`);
-        setEditingBudgetId(null);
       } else {
         const { error } = await supabase.from('orcamentos').insert([
           {
@@ -729,6 +727,9 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
         setSavedBudgets((prev) => [newBudget, ...prev]);
         setToastNotice(`Orçamento salvo na nuvem com sucesso!`);
       }
+
+      // Limpa toda a tela após salvar com sucesso
+      handleReset();
 
       setIsSaved(true);
       setTimeout(() => {
