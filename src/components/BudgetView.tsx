@@ -77,7 +77,7 @@ export const SHIPPING_PLATFORMS = [
   'Outra',
 ] as const;
 
-// Interfaces e Constantes da Cotação de Frete (Importadas do ShippingQuoteView)
+// Interfaces e Constantes da Cotação de Frete
 export interface CarrierOption {
   transportadora: string;
   plataforma: 'MELHOR ENVIO' | 'FRENET' | string;
@@ -169,7 +169,7 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
   const [addQuantity, setAddQuantity] = useState<number>(1);
   const [showItemPicker, setShowItemPicker] = useState<boolean>(false);
 
-  // --- LÓGICA DE FRETE INTEGRADA (do ShippingQuoteView) ---
+  // --- LÓGICA DE FRETE INTEGRADA ---
   const [activeFreightView, setActiveFreightView] = useState<'formulario' | 'interno' | 'cliente'>('formulario');
   const [cepDestino, setCepDestino] = useState('');
   const [cidadeEstado, setCidadeEstado] = useState('');
@@ -370,7 +370,7 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
 
       setDadosCotacoes(cotacoesProcessadas);
       setIsSearchingFreight(false);
-      setActiveFreightView('cliente'); // Já abre direto na visão do cliente como na Imagem 2
+      setActiveFreightView('cliente'); 
     } catch (err: any) {
       console.error('Erro na cotação:', err);
       setFreightError('Erro ao conectar com o servidor de cotação. Verifique a conexão e tente novamente.');
@@ -422,8 +422,6 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
     setToastNotice(`Transportadora ${carrier.transportadora} aplicada ao orçamento!`);
     setTimeout(() => setToastNotice(null), 3000);
   };
-
-  // --- FIM LÓGICA FRETE INTEGRADA ---
 
   const resolvePlatformOrig = (data?: PrefilledFreightData | null) => {
     const plat = data?.plataformaSelecionada || data?.plataforma || '';
@@ -533,21 +531,16 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
   const subtotalPix = subtotalProducts * 0.95;
   const valorTotalPix = subtotalPix + numShipping;
 
-
   const budgetText = useMemo(() => {
     const greeting = leadName.trim() ? `Olá, ${leadName.trim()}, segue o resumo do seu orçamento:` : `Olá, segue o resumo do seu orçamento:`;
     
-    // TEXTO DOS ITENS MELHORADO AQUI:
     const itemsLines = items.map((it) => {
       const prefix = `${it.quantity}x `;
       const obsText = it.observacao ? ` (${it.observacao})` : '';
       
-      // Se for mais de 1 unidade, mostra o valor unitário e o total
       if (it.quantity > 1) {
         return `${prefix}${it.name}${obsText} (R$ ${formatCurrencyValue(it.unitPrice)}/un) = R$ ${formatCurrencyValue(it.totalPrice)}`;
       }
-      
-      // Se for apenas 1 unidade, mostra normal
       return `${prefix}${it.name}${obsText} = R$ ${formatCurrencyValue(it.totalPrice)}`;
     });
 
@@ -1191,7 +1184,7 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
               </div>
             )}
 
-            {/* TABELA DE COTAÇÃO - VISÃO DO CLIENTE (CLONE DA IMAGEM 2) */}
+            {/* TABELA DE COTAÇÃO - VISÃO DO CLIENTE */}
             {activeFreightView === 'cliente' && !isSearchingFreight && (
               <div className="space-y-4 animate-in fade-in duration-150">
                 <div className="flex items-center justify-between text-xs bg-amber-50 p-2 rounded-lg border border-amber-200">
@@ -1210,7 +1203,6 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
                           <th className="py-2.5 px-3 w-28 text-amber-400">Parceiro</th>
                           <th className="py-2.5 px-3 text-slate-200">Transportadora & Serviço</th>
                           <th className="py-2.5 px-3 w-32 text-slate-200">Prazo Estimado</th>
-                          <th className="py-2.5 px-3 w-36 text-slate-400">Informações Extra</th>
                           <th className="py-2.5 px-3 text-right w-36 text-emerald-400">Valor p/ Cliente</th>
                           <th className="py-2.5 px-3 text-center w-36 text-slate-300">Ação</th>
                         </tr>
@@ -1219,7 +1211,6 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
                         {sortedCotacoes.map((item, idx) => {
                           const precoFinalCliente = getCustomerPrice(item.preco);
                           const { min, max } = getCustomerWindow(item.prazo);
-                          const acrescimo = precoFinalCliente - item.preco;
                           const isBestPrice = item.preco === minPrice;
                           const isFastest = item.prazo === minPrazo;
                           const isFrenet = item.plataforma.toUpperCase() === 'FRENET';
@@ -1266,12 +1257,6 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
                                   <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                                   <span>{min} a {max} dias úteis</span>
                                 </div>
-                              </td>
-
-                              <td className="py-3 px-3 whitespace-nowrap">
-                                <span className="text-[10px] font-mono text-slate-400">
-                                  Margem: +{formatBRL(acrescimo)}
-                                </span>
                               </td>
 
                               <td className="py-3 px-3 text-right whitespace-nowrap">
@@ -1341,9 +1326,8 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-slate-700 font-medium text-xs mb-1.5 flex justify-between">
-                    Frete Cotado (R$) 
-                    <span className="text-[9px] text-slate-400">Seu Custo</span>
+                  <label className="block text-slate-700 font-medium text-xs mb-1.5">
+                    Frete Custo (R$) 
                   </label>
                   <input
                     type="number"
@@ -1356,9 +1340,8 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-slate-700 font-medium text-xs mb-1.5 flex justify-between">
-                    Frete Cobrado (R$) 
-                    <span className="text-[9px] text-slate-400">Do Cliente</span>
+                  <label className="block text-slate-700 font-medium text-xs mb-1.5">
+                    Frete Cliente (R$) 
                   </label>
                   <input
                     type="number"
