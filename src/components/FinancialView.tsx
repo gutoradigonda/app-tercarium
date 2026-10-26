@@ -20,7 +20,9 @@ import {
   Receipt,
   Download,
   Ban,
-  RotateCcw
+  RotateCcw,
+  Info,
+  X
 } from 'lucide-react';
 import { 
   ResponsiveContainer, 
@@ -53,18 +55,20 @@ interface FinancialViewProps {
   expenses?: Expense[];
 }
 
+// Interfaces e Tipos para o Modal Detalhado
+type DetailCardType = 'venda' | 'ticket' | 'custos' | 'descontos' | 'frete' | 'lucroBruto' | 'devolvidos' | null;
+
 export const FinancialView: React.FC<FinancialViewProps> = ({ orders, onSelectOrder, expenses = [] }) => {
   // 1. ESTADO DE FILTRO DE MESES
   const [mesesSelecionados, setMesesSelecionados] = useState<string[]>(() => [getCurrentMonthKey()]);
   const currentMonthKey = useMemo(() => getCurrentMonthKey(), []);
   const availableMonthKeys = useMemo(() => getAvailableMonthKeys(orders), [orders]);
 
-  // Controles da tabela detalhada
+  // Controles da tabela detalhada e modais
   const [paymentFilter, setPaymentFilter] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'profit_desc' | 'profit_asc' | 'margin_desc' | 'value_desc'>('profit_desc');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-
-  // Modo de exibição do gráfico: auto, day ou month
+  const [activeDetailCard, setActiveDetailCard] = useState<DetailCardType>(null);
   const [chartMode, setChartMode] = useState<'auto' | 'day' | 'month'>('auto');
 
   // Ação de exportação para CSV
@@ -133,6 +137,8 @@ export const FinancialView: React.FC<FinancialViewProps> = ({ orders, onSelectOr
   const totalPedidos = monthFilteredOrders.length;
   const totalVendaBruta = useMemo(() => monthFilteredOrders.reduce((acc, o) => acc + o.saleValue, 0), [monthFilteredOrders]);
   const ticketMedio = totalPedidos > 0 ? totalVendaBruta / totalPedidos : 0;
+  
+  // Detalhamento de Custos Operacionais
   const totalCustoProducao = useMemo(() => monthFilteredOrders.reduce((acc, o) => acc + (o.productionCost || 0), 0), [monthFilteredOrders]);
   const totalFreteCotado = useMemo(() => monthFilteredOrders.reduce((acc, o) => acc + (o.shippingPaid || 0), 0), [monthFilteredOrders]);
   const totalFreteCobrado = useMemo(() => monthFilteredOrders.reduce((acc, o) => acc + (o.shippingCharged || 0), 0), [monthFilteredOrders]);
@@ -169,10 +175,8 @@ export const FinancialView: React.FC<FinancialViewProps> = ({ orders, onSelectOr
   const totalDespesasGerais = totalDespesasFixas + totalDespesasVariaveis;
 
   const lucroLiquidoReal = useMemo(() => lucroBrutoMargem - totalDespesasGerais, [lucroBrutoMargem, totalDespesasGerais]);
-
   const totalLucroReal = lucroBrutoMargem;
   const margemLucroGeral = margemLucroBruto;
-  const resultadoOperacionalFinal = lucroLiquidoReal;
 
   // 4. PREPARAÇÃO DOS DADOS DO GRÁFICO
   const activeGranularity = useMemo(() => {
@@ -277,8 +281,166 @@ export const FinancialView: React.FC<FinancialViewProps> = ({ orders, onSelectOr
     return null;
   };
 
+  // -------------------------------------------------------------
+  // RENDERIZAÇÃO DO MODAL DE DETALHES DE MEMÓRIA DE CÁLCULO
+  // -------------------------------------------------------------
+  const renderDetailModal = () => {
+    if (!activeDetailCard) return null;
+
+    let title = '';
+    let icon = null;
+    let content = null;
+    let totalMain = '';
+    let totalLabel = '';
+    let colorClass = '';
+
+    if (activeDetailCard === 'venda') {
+      title = 'Resumo da Venda Bruta';
+      icon = <DollarSign className="w-5 h-5" />;
+      colorClass = 'text-amber-700 bg-amber-50 border-amber-200';
+      totalMain = formatBRL(totalVendaBruta);
+      totalLabel = `Receita bruta baseada em ${totalPedidos} pedidos`;
+      
+      const subtotalItens = monthFilteredOrders.reduce((acc, o) => acc + (o.subtotal || o.saleValue), 0);
+
+      content = (
+        <div className="space-y-3 font-mono text-xs">
+          <div className="flex justify-between items-center py-1.5 border-b border-slate-100">
+            <span className="text-slate-500 font-sans">Subtotal Venda de Produtos</span>
+            <span className="text-slate-700 font-medium">+{formatBRL(subtotalItens)}</span>
+          </div>
+          <div className="flex justify-between items-center py-1.5 border-b border-slate-100">
+            <span className="text-slate-500 font-sans">Fretes Cobrados do Cliente</span>
+            <span className="text-slate-700 font-medium">+{formatBRL(totalFreteCobrado)}</span>
+          </div>
+          <div className="flex justify-between items-center py-1.5 border-b border-slate-100">
+            <span className="text-slate-500 font-sans">Descontos Concedidos</span>
+            <span className="text-rose-600 font-medium">-{formatBRL(totalDescontos)}</span>
+          </div>
+        </div>
+      );
+    } else if (activeDetailCard === 'custos') {
+      title = 'Memória de Custos Operacionais';
+      icon = <Package className="w-5 h-5" />;
+      colorClass = 'text-rose-700 bg-rose-50 border-rose-200';
+      totalMain = formatBRL(totalCustosOperacionais);
+      totalLabel = 'Gasto direto com a produção e despacho das vendas';
+
+      content = (
+        <div className="space-y-3 font-mono text-xs">
+          <div className="flex justify-between items-center py-1.5 border-b border-slate-100">
+            <span className="text-slate-500 font-sans">Custo de Produção das Peças</span>
+            <span className="text-rose-600 font-medium">{formatBRL(totalCustoProducao)}</span>
+          </div>
+          <div className="flex justify-between items-center py-1.5 border-b border-slate-100">
+            <span className="text-slate-500 font-sans">Custo do Frete Pago à Transportadora</span>
+            <span className="text-rose-600 font-medium">{formatBRL(totalFreteCotado)}</span>
+          </div>
+          <div className="flex justify-between items-center py-1.5 border-b border-slate-100">
+            <span className="text-slate-500 font-sans flex items-center gap-1.5">
+              Taxas Gateway <CreditCard className="w-3.5 h-3.5" />
+            </span>
+            <span className="text-rose-600 font-medium">{formatBRL(totalTaxasGateway)}</span>
+          </div>
+        </div>
+      );
+    } else if (activeDetailCard === 'lucroBruto') {
+      title = 'Resumo de Lucro Bruto e Margem';
+      icon = <Sparkles className="w-5 h-5" />;
+      colorClass = 'text-emerald-800 bg-emerald-50 border-emerald-200';
+      totalMain = formatBRL(lucroBrutoMargem);
+      totalLabel = 'Lucro retido antes de subtrair as despesas do ateliê';
+
+      content = (
+        <div className="space-y-3 font-mono text-xs">
+          <div className="flex justify-between items-center py-1.5 border-b border-slate-100">
+            <span className="text-slate-500 font-sans">Receita Líquida (Venda - Descontos - Taxas)</span>
+            <span className="text-slate-700 font-medium">{formatBRL(totalVendaBruta - totalDescontos - totalTaxasGateway)}</span>
+          </div>
+          <div className="flex justify-between items-center py-1.5 border-b border-slate-100">
+            <span className="text-slate-500 font-sans">Custo Total de Produção</span>
+            <span className="text-rose-600 font-medium">-{formatBRL(totalCustoProducao)}</span>
+          </div>
+          <div className="flex justify-between items-center py-1.5 border-b border-slate-100">
+            <span className="text-slate-500 font-sans">Resultado do Frete (Sobra)</span>
+            <span className={sobraFrete >= 0 ? 'text-emerald-600 font-medium' : 'text-rose-600 font-medium'}>
+              {sobraFrete >= 0 ? `+${formatBRL(sobraFrete)}` : `-${formatBRL(Math.abs(sobraFrete))}`}
+            </span>
+          </div>
+        </div>
+      );
+    } else if (activeDetailCard === 'frete') {
+      title = 'Análise do Resultado de Frete';
+      icon = <Truck className="w-5 h-5" />;
+      colorClass = sobraFrete >= 0 ? 'text-emerald-800 bg-emerald-50 border-emerald-200' : 'text-rose-800 bg-rose-50 border-rose-200';
+      totalMain = sobraFrete >= 0 ? `+${formatBRL(sobraFrete)}` : `-${formatBRL(Math.abs(sobraFrete))}`;
+      totalLabel = sobraFrete >= 0 ? 'Superávit líquido (Recebido > Pago)' : 'Prejuízo absorvido (Pago > Recebido)';
+
+      content = (
+        <div className="space-y-3 font-mono text-xs">
+          <div className="flex justify-between items-center py-1.5 border-b border-slate-100">
+            <span className="text-slate-500 font-sans flex items-center gap-1.5">
+              <ArrowDownRight className="w-3.5 h-3.5 text-emerald-600" />
+              Fretes Cobrados do Cliente
+            </span>
+            <span className="text-slate-700 font-medium">{formatBRL(totalFreteCobrado)}</span>
+          </div>
+          <div className="flex justify-between items-center py-1.5 border-b border-slate-100">
+            <span className="text-slate-500 font-sans flex items-center gap-1.5">
+              <ArrowUpRight className="w-3.5 h-3.5 text-rose-600" />
+              Custo Efetivo na Transportadora
+            </span>
+            <span className="text-rose-600 font-medium">-{formatBRL(totalFreteCotado)}</span>
+          </div>
+          <div className="p-3 bg-slate-50 rounded-lg text-[11px] text-slate-500 font-sans leading-relaxed border border-slate-200 mt-2">
+            A sobra de frete é injetada diretamente na composição da Margem de Contribuição e do Lucro Líquido Real.
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-sm w-full animate-in fade-in duration-150">
+          <div className="flex items-center justify-between p-4 border-b border-slate-100">
+            <div className="flex items-center gap-2">
+              <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 border ${colorClass}`}>
+                {icon}
+              </div>
+              <h3 className="font-bold text-sm text-slate-800">{title}</h3>
+            </div>
+            <button
+              onClick={() => setActiveDetailCard(null)}
+              className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          
+          <div className="p-5">
+            <div className="mb-5 pb-4 border-b border-slate-100">
+              <div className="text-2xl font-bold font-mono text-slate-900 tracking-tight">{totalMain}</div>
+              <p className="text-[11px] text-slate-500 mt-1">{totalLabel}</p>
+            </div>
+            
+            {content}
+          </div>
+          
+          <div className="bg-slate-50 p-4 border-t border-slate-100 flex justify-end">
+            <button
+              onClick={() => setActiveDetailCard(null)}
+              className="px-4 py-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg shadow-2xs transition-colors cursor-pointer"
+            >
+              Fechar
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 relative">
       {/* 1. SEÇÃO DE FILTRO DE MESES */}
       <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/90 shadow-xs space-y-3.5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
@@ -370,14 +532,20 @@ export const FinancialView: React.FC<FinancialViewProps> = ({ orders, onSelectOr
         </div>
       </div>
 
-      {/* 2. CARDS DE RESUMO FINANCEIRO (COM NOVO GRID E SEM TRUNCAMENTO) */}
+      {/* 2. CARDS DE RESUMO FINANCEIRO (CLICÁVEIS PARA DETALHAMENTO DE MEMÓRIA) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
         {/* Card 1: Venda Bruta */}
-        <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col justify-between space-y-2 min-w-0">
+        <div 
+          onClick={() => setActiveDetailCard('venda')}
+          className="bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col justify-between space-y-2 cursor-pointer hover:border-amber-400 hover:shadow-md transition-all group min-w-0"
+        >
           <div className="flex items-start justify-between text-xs text-slate-500 gap-1">
             <span className="font-semibold text-slate-700 whitespace-normal break-words" title="Venda Bruta">Venda Bruta</span>
-            <div className="w-7 h-7 rounded-lg bg-amber-500/10 text-amber-700 flex items-center justify-center shrink-0">
-              <DollarSign className="w-4 h-4" />
+            <div className="flex items-center gap-1.5">
+              <span className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] font-medium text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">Resumo</span>
+              <div className="w-7 h-7 rounded-lg bg-amber-500/10 text-amber-700 flex items-center justify-center shrink-0 group-hover:bg-amber-100 transition-colors">
+                <DollarSign className="w-4 h-4" />
+              </div>
             </div>
           </div>
           <div className="min-w-0">
@@ -415,11 +583,17 @@ export const FinancialView: React.FC<FinancialViewProps> = ({ orders, onSelectOr
         </div>
 
         {/* Card 3: Custos Operacionais */}
-        <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col justify-between space-y-2 min-w-0">
+        <div 
+          onClick={() => setActiveDetailCard('custos')}
+          className="bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col justify-between space-y-2 cursor-pointer hover:border-rose-300 hover:shadow-md transition-all group min-w-0"
+        >
           <div className="flex items-start justify-between text-xs text-slate-500 gap-1">
             <span className="font-semibold text-slate-700 whitespace-normal break-words" title="Custos Operacionais">Custos Oper.</span>
-            <div className="w-7 h-7 rounded-lg bg-rose-500/10 text-rose-700 flex items-center justify-center shrink-0">
-              <Package className="w-4 h-4" />
+            <div className="flex items-center gap-1.5">
+              <span className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] font-medium text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded">Ver Conta</span>
+              <div className="w-7 h-7 rounded-lg bg-rose-500/10 text-rose-700 flex items-center justify-center shrink-0 group-hover:bg-rose-100 transition-colors">
+                <Package className="w-4 h-4" />
+              </div>
             </div>
           </div>
           <div className="min-w-0">
@@ -435,7 +609,7 @@ export const FinancialView: React.FC<FinancialViewProps> = ({ orders, onSelectOr
           </div>
         </div>
 
-        {/* NOVO CARD: Total de Despesas (Despesas Operacionais) */}
+        {/* Card 4: Total de Despesas */}
         <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col justify-between space-y-2 min-w-0">
           <div className="flex items-start justify-between text-xs text-slate-500 gap-1">
             <span className="font-semibold text-slate-700 whitespace-normal break-words" title="Total de Despesas">Total Despesas</span>
@@ -477,18 +651,28 @@ export const FinancialView: React.FC<FinancialViewProps> = ({ orders, onSelectOr
           </div>
         </div>
 
-        {/* Card 6: Resultado do Frete (A Sobra do Frete) */}
-        <div className={`p-3.5 sm:p-4 rounded-2xl border shadow-xs flex flex-col justify-between space-y-2 min-w-0 ${
-          sobraFrete >= 0 ? 'bg-emerald-50/70 border-emerald-200' : 'bg-rose-50/70 border-rose-200'
-        }`}>
+        {/* Card 6: Resultado do Frete (Sobra) */}
+        <div 
+          onClick={() => setActiveDetailCard('frete')}
+          className={`p-3.5 sm:p-4 rounded-2xl border shadow-xs flex flex-col justify-between space-y-2 cursor-pointer transition-all group min-w-0 ${
+            sobraFrete >= 0 
+              ? 'bg-emerald-50/70 border-emerald-200 hover:border-emerald-400 hover:shadow-md' 
+              : 'bg-rose-50/70 border-rose-200 hover:border-rose-400 hover:shadow-md'
+          }`}
+        >
           <div className="flex items-start justify-between text-xs gap-1">
             <span className={`font-semibold whitespace-normal break-words ${sobraFrete >= 0 ? 'text-emerald-900' : 'text-rose-900'}`} title="Resultado do Frete">
               Resultado Frete
             </span>
-            <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
-              sobraFrete >= 0 ? 'bg-emerald-200/60 text-emerald-800' : 'bg-rose-200/60 text-rose-800'
-            }`}>
-              <Truck className="w-4 h-4" />
+            <div className="flex items-center gap-1.5">
+              <span className={`opacity-0 group-hover:opacity-100 transition-opacity text-[10px] font-medium px-1.5 py-0.5 rounded ${sobraFrete >= 0 ? 'text-emerald-700 bg-emerald-100' : 'text-rose-700 bg-rose-100'}`}>
+                Análise
+              </span>
+              <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+                sobraFrete >= 0 ? 'bg-emerald-200/60 text-emerald-800 group-hover:bg-emerald-300/60' : 'bg-rose-200/60 text-rose-800 group-hover:bg-rose-300/60'
+              }`}>
+                <Truck className="w-4 h-4" />
+              </div>
             </div>
           </div>
           <div className="min-w-0">
@@ -507,15 +691,21 @@ export const FinancialView: React.FC<FinancialViewProps> = ({ orders, onSelectOr
         </div>
 
         {/* Card 7: Lucro Bruto (Margem) */}
-        <div className="bg-gradient-to-br from-emerald-900 to-slate-900 text-white p-3.5 sm:p-4 rounded-2xl border border-emerald-700 shadow-sm flex flex-col justify-between space-y-2 min-w-0">
+        <div 
+          onClick={() => setActiveDetailCard('lucroBruto')}
+          className="bg-gradient-to-br from-emerald-900 to-slate-900 text-white p-3.5 sm:p-4 rounded-2xl border border-emerald-700 shadow-sm flex flex-col justify-between space-y-2 cursor-pointer hover:border-emerald-400 hover:shadow-lg transition-all group min-w-0"
+        >
           <div className="flex items-start justify-between text-xs gap-1">
             <span className="font-semibold text-emerald-300 flex items-center gap-1 whitespace-normal break-words" title="Lucro Bruto">
               <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
               <span className="whitespace-normal break-words">Lucro Bruto</span>
             </span>
-            <span className="font-mono text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 shrink-0">
-              {formatPercent(margemLucroBruto)}
-            </span>
+            <div className="flex items-center gap-1.5">
+              <span className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] font-medium text-emerald-100 bg-emerald-800 px-1.5 py-0.5 rounded">Resumo DRE</span>
+              <span className="font-mono text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 shrink-0 group-hover:bg-emerald-400/30 transition-colors">
+                {formatPercent(margemLucroBruto)}
+              </span>
+            </div>
           </div>
           <div className="min-w-0">
             <div 
@@ -812,7 +1002,7 @@ export const FinancialView: React.FC<FinancialViewProps> = ({ orders, onSelectOr
                           <div className="text-emerald-700">
                             <span className="font-semibold">+{formatBRL(metrics.shippingSurplus)}</span>
                             <span className="block text-[9px] text-emerald-600">
-                              (Cob {formatBRL(metrics.shippingCharged)} - Cot {formatBRL(metrics.shippingPaid)})
+                              (Cob {formatBRL(metrics.shippingCharged)} / Cot {formatBRL(metrics.shippingPaid)})
                             </span>
                           </div>
                         ) : metrics.shippingSurplus < 0 ? (
@@ -874,6 +1064,9 @@ export const FinancialView: React.FC<FinancialViewProps> = ({ orders, onSelectOr
           </table>
         </div>
       </div>
+
+      {/* RENDERIZAÇÃO DO MODAL EXCLUSIVO (Se Ativo) */}
+      {renderDetailModal()}
 
       {toastMessage && (
         <div className="fixed bottom-6 right-6 z-50 bg-slate-900 text-white px-4 py-3 rounded-xl shadow-2xl border border-slate-700 flex items-center gap-3 animate-in fade-in slide-in-from-bottom-2 duration-200">
