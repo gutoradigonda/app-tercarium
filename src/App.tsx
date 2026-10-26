@@ -124,16 +124,24 @@ export default function App() {
           const cityVal = matchedClient?.city || o.client_city || o.clientCity || 'Londrina';
           const stateVal = matchedClient?.state || o.client_state || o.clientState || 'PR';
           const clientNameVal = matchedClient?.name || o.client_name || 'Cliente';
+          
+          // Mapeamento correto dos endereços do cliente
+          const addressVal = matchedClient?.address || o.client_address || o.clientAddress || '';
+          const cepVal = matchedClient?.cep || o.client_cep || o.clientCep || '';
+          const phoneVal = matchedClient?.phone || o.client_phone || o.clientPhone || '';
 
           return {
             ...o,
             id: String(o.id || ''),
             clientId: String(o.client_id || o.clientId || ''),
             clientName: String(clientNameVal),
-            codigoCliente: String(clientOrderIdVal),
-            clientOrderId: String(clientOrderIdVal),
+            clientPhone: String(phoneVal),
+            clientAddress: String(addressVal),
             clientCity: String(cityVal),
             clientState: String(stateVal),
+            clientCep: String(cepVal),
+            codigoCliente: String(clientOrderIdVal),
+            clientOrderId: String(clientOrderIdVal),
             items: Array.isArray(o.items) ? o.items : [],
             saleValue: Number(o.total_value) || 0,
             shippingCharged: Number(o.shipping_value) || 0,
@@ -405,7 +413,7 @@ export default function App() {
       if (error) throw error;
     } catch (err: any) {
       console.error('Erro ao atualizar pedido no Supabase:', err);
-      alert(`Falha ao gravar no banco de dados: ${err.message}\nCertifique-se de que rodou o comando SQL no Supabase para criar as novas colunas.`);
+      alert(`Falha ao gravar no banco de dados: ${err.message}`);
     }
   };
 
@@ -947,10 +955,12 @@ export default function App() {
         order={selectedOrder}
         onClose={() => setSelectedOrder(null)}
         onStatusChange={handleStatusChange}
+        onUpdateOrder={handleUpdateOrder}
         onOpenTracking={(order) => {
           setSelectedOrder(null);
           setTrackingOrder(order);
         }}
+        userRole={userRole || undefined}
       />
 
       <TrackingModal
