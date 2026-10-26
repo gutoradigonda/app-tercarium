@@ -75,29 +75,21 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   userRole,
 }) => {
   const isViewer = userRole === 'leitura';
-  // Local state to control the New Order Modal opening
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
-  // Local state to control the Edit Order Modal
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
 
-  // Search & filter states
   const [searchTerm, setSearchTerm] = useState('');
   const [paymentFilter, setPaymentFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Paginação client-side (máximo 12 pedidos por página)
   const [currentPage, setCurrentPage] = useState(1);
-
-  // Modal Avisar Cliente (reforço obrigatório: abre Dialog com opções de Copiar ou Abrir WhatsApp)
   const [notifyingOrder, setNotifyingOrder] = useState<Order | null>(null);
 
-  // Ação de Cancelar Pedido (atualiza imediatamente o status para 'cancelado' e marca flag estornado: true)
   const handleCancelarPedido = (orderId: string) => {
     const targetOrder = orders.find((o) => o.id === orderId);
     if (!targetOrder) return;
 
-    // Atualiza imediatamente o status para 'cancelado' (garantindo sincronização imediata em todo o sistema)
     onStatusChange(orderId, 'cancelado');
 
     if (onUpdateOrder) {
@@ -124,10 +116,6 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
     setTimeout(() => setToastMessage(null), 3500);
   };
 
-  // Alias para compatibilidade
-  const handleCancelOrder = (order: Order) => handleCancelarPedido(order.id);
-
-  // Ação de Fazer Devolução do R$ (Estorno)
   const handleRefundOrder = (order: Order) => {
     const confirmMsg = `Confirmar a devolução (estorno) de ${formatBRL(order.saleValue)} para o cliente ${order.clientName} do pedido #${order.id}?\n\nO pedido será marcado como 'Cancelado e Estornado'.`;
     if (!window.confirm(confirmMsg)) return;
@@ -158,46 +146,12 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
     setTimeout(() => setToastMessage(null), 3500);
   };
 
-  // Ação de Alteração / Reversão de Status do Pedido:
-  const handleStatusChange = (orderId: string, newStatus: OrderStatus) => {
-    const isCancelledOrRefunded = newStatus === 'cancelado' || newStatus === 'cancelado_estornado';
-    onStatusChange(orderId, newStatus);
-
-    if (onUpdateOrder) {
-      const targetOrder = orders.find((o) => o.id === orderId);
-      if (targetOrder) {
-        const now = new Date();
-        const timestamp = `${getTodayDateFormatted()} ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
-        const updatedOrder: Order = {
-          ...targetOrder,
-          status: newStatus,
-          // Redefinição explícita para false caso o novo status seja ativo
-          estornado: isCancelledOrRefunded ? (targetOrder.estornado ?? (newStatus === 'cancelado_estornado')) : false,
-          dataEstorno: isCancelledOrRefunded ? targetOrder.dataEstorno : undefined,
-          history: [
-            ...(targetOrder.history || []),
-            {
-              status: newStatus,
-              timestamp,
-              note: isCancelledOrRefunded
-                ? `Status alterado para ${STATUS_CONFIG[newStatus]?.label || newStatus}`
-                : `Status reativado para ${STATUS_CONFIG[newStatus]?.label || newStatus} (cancelamento e estorno revertidos)`,
-            },
-          ],
-        };
-        onUpdateOrder(updatedOrder);
-      }
-    }
-  };
-
-  // Filtros rápidos em tempo real nas colunas da tabela
   const [filterInternalId, setFilterInternalId] = useState<string>('');
   const [filterCodigoCliente, setFilterCodigoCliente] = useState<string>('');
   const [filterClientName, setFilterClientName] = useState<string>('');
   const [activeFilterPopover, setActiveFilterPopover] = useState<'internalId' | 'codigoCliente' | 'clientName' | null>(null);
   const filterPopoverRef = useRef<HTMLDivElement>(null);
 
-  // Ordenação nas colunas da tabela (Padrão: Data mais recente primeiro)
   type SortField = 'date' | 'id' | 'codigoCliente' | 'clientName';
   type SortDirection = 'asc' | 'desc';
   const [sortField, setSortField] = useState<SortField>('date');
@@ -212,7 +166,6 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
     }
   };
 
-  // Fecha o popover ao clicar fora
   useEffect(() => {
     function handleClickOutsidePopover(event: MouseEvent) {
       if (filterPopoverRef.current && !filterPopoverRef.current.contains(event.target as Node)) {
@@ -227,8 +180,9 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
     }
   }, [activeFilterPopover]);
 
+  // Função de Exportação Completa Atualizada
   const handleExport = () => {
-    setToastMessage('Download do relatório em CSV iniciado...');
+    setToastMessage('Download do relatório completo em CSV iniciado...');
     setTimeout(() => setToastMessage(null), 3500);
 
     const headers = [
@@ -236,35 +190,48 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
       'Pedido Cliente',
       'Data',
       'Cliente',
+      'CPF',
       'Telefone',
+      'E-mail',
+      'Endereço',
       'Cidade',
       'UF',
-      'Item',
+      'Itens do Pedido',
       'Valor Venda (R$)',
       'Frete Cobrado (R$)',
+      'Frete Cotado (R$)',
       'Forma de Pagto',
-      'Status Operacional',
-      'Status Pagamento'
+      'Status Operacional'
     ];
-    const rows = filteredOrders.map((o) => [
-      o.id || '',
-      o.codigoCliente || '',
-      o.createdAt || '',
-      o.clientName || '',
-      o.clientPhone || '',
-      o.clientCity || '',
-      o.clientState || '',
-      o.item || '',
-      (o.saleValue || 0).toFixed(2),
-      (o.shippingCharged || 0).toFixed(2),
-      PAYMENT_LABELS[o.paymentMethod] || o.paymentMethod || '',
-      STATUS_CONFIG[o.status]?.label || o.status || '',
-      o.paymentStatus || 'pago'
-    ]);
-    exportToCSV('pedidos_tercarium', headers, rows);
+
+    const rows = filteredOrders.map((o) => {
+      const itensFormatados = o.items && o.items.length > 0
+        ? o.items.map(i => `${i.quantity || 1}x ${i.model || ''} (Cód: ${i.code || ''})${i.observacao ? ` [Obs: ${i.observacao}]` : ''}`).join(' | ')
+        : `${o.item || ''} - ${o.itemModel || ''}`;
+
+      return [
+        o.id || '',
+        o.codigoCliente || '',
+        o.createdAt || '',
+        o.clientName || '',
+        o.clientCpf || '',
+        o.clientPhone || '',
+        o.clientEmail || '',
+        o.clientAddress || '',
+        o.clientCity || '',
+        o.clientState || '',
+        itensFormatados,
+        (o.saleValue || 0).toFixed(2),
+        (o.shippingCharged || 0).toFixed(2),
+        (o.shippingPaid || 0).toFixed(2),
+        PAYMENT_LABELS[o.paymentMethod] || o.paymentMethod || '',
+        STATUS_CONFIG[o.status]?.label || o.status || ''
+      ];
+    });
+
+    exportToCSV('backup_pedidos_tercarium', headers, rows);
   };
 
-  // Estado de controle de filtro por mês (Padrão: mês atual baseado na data de hoje)
   const [mesesSelecionados, setMesesSelecionados] = useState<string[]>(() => [getCurrentMonthKey()]);
   const [isMonthDropdownOpen, setIsMonthDropdownOpen] = useState(false);
   const monthDropdownRef = useRef<HTMLDivElement>(null);
@@ -282,7 +249,6 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   const currentMonthKey = useMemo(() => getCurrentMonthKey(), []);
   const availableMonthKeys = useMemo(() => getAvailableMonthKeys(orders), [orders]);
 
-  // Ações rápidas de seleção de meses
   const handleSelectCurrentMonth = () => {
     setMesesSelecionados([currentMonthKey]);
   };
@@ -333,7 +299,6 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
     availableMonthKeys.length > 0 &&
     availableMonthKeys.every((k) => mesesSelecionados.includes(k));
 
-  // 1. Filtragem por meses selecionados
   const monthFilteredOrders = useMemo(() => {
     if (mesesSelecionados.length === 0) return [];
     return orders.filter((order) => {
@@ -342,8 +307,6 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
     });
   }, [orders, mesesSelecionados]);
 
-  // Separação entre pedidos ativos e pedidos cancelados/estornados
-  // Se o novo status NÃO for "Cancelado" ou "Cancelado e Estornado", o pedido é faturamento ativo
   const activeMonthOrders = useMemo(() => {
     return monthFilteredOrders.filter((o) => {
       const isCancelled = o.status === 'cancelado' || o.status === 'cancelado_estornado';
@@ -358,8 +321,6 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
     });
   }, [monthFilteredOrders]);
 
-  // 2. Recálculo dinâmico dos totais levando status em consideração:
-  // Se cancelado, subtrai do Volume de Vendas e soma ao card de Pedidos Cancelados / Valores Devolvidos
   const totalPedidos = monthFilteredOrders.length;
   const totalVendas = activeMonthOrders.reduce((acc, o) => acc + o.saleValue, 0);
   const pedidosCanceladosCount = cancelledMonthOrders.length;
@@ -370,9 +331,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   const sobraFrete = totalFreteCobrado - totalFreteReal;
   const ticketMedio = activeMonthOrders.length > 0 ? totalVendas / activeMonthOrders.length : 0;
   const qtdMesesAtivos = mesesSelecionados.length > 0 ? mesesSelecionados.length : 1;
-  const mediaPedidosPorMes = totalPedidos / qtdMesesAtivos;
 
-  // Total de itens físicos nos pedidos ativos dos meses selecionados
   const totalItens = useMemo(() => {
     return activeMonthOrders.reduce((acc, o) => {
       if (o.items && o.items.length > 0) {
@@ -382,10 +341,8 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
     }, 0);
   }, [activeMonthOrders]);
 
-  // Ticket médio por item (Volume de Vendas / Total de Itens Ativos)
   const ticketMedioItens = totalItens > 0 ? totalVendas / totalItens : 0;
 
-  // 3. Filtragem de pesquisa, filtros específicos de colunas e ordenação dinâmica com Travas Anti-Crash
   const filteredOrders = useMemo(() => {
     const list = monthFilteredOrders.filter((order) => {
       const term = searchTerm.toLowerCase();
@@ -401,15 +358,12 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
       const matchesPayment = paymentFilter === 'all' || order.paymentMethod === paymentFilter;
       const matchesStatus = statusFilter === 'all' || order.status === statusFilter;
 
-      // Filtro específico: Pedido Interno
       const matchesInternalId = !filterInternalId.trim() || 
         (order.id || '').toLowerCase().includes(filterInternalId.trim().toLowerCase());
 
-      // Filtro específico: Pedido Cliente (Código do Cliente)
       const matchesCodigoCliente = !filterCodigoCliente.trim() || 
         (order.codigoCliente || '').toLowerCase().includes(filterCodigoCliente.trim().toLowerCase());
 
-      // Filtro específico: Cliente (busca textual por nome ou cidade)
       const matchesClientName = !filterClientName.trim() || 
         (order.clientName || '').toLowerCase().includes(filterClientName.trim().toLowerCase()) ||
         (order.clientCity || '').toLowerCase().includes(filterClientName.trim().toLowerCase());
@@ -417,7 +371,6 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
       return matchesSearch && matchesPayment && matchesStatus && matchesInternalId && matchesCodigoCliente && matchesClientName;
     });
 
-    // Ordenação dinâmica das colunas
     return [...list].sort((a, b) => {
       let comparison = 0;
       if (sortField === 'date') {
@@ -473,7 +426,6 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
     sortDirection
   ]);
 
-  // Reset da página quando filtros ou ordenação mudam
   useEffect(() => {
     setCurrentPage(1);
   }, [
@@ -488,10 +440,8 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
     sortDirection
   ]);
 
-  // Lógica Matemática de Paginação (Máximo 12 pedidos por página)
   const totalPages = Math.max(1, Math.ceil(filteredOrders.length / ITEMS_PER_PAGE));
 
-  // Trava para evitar página inválida após filtragem
   useEffect(() => {
     if (currentPage > totalPages) {
       setCurrentPage(totalPages);
@@ -504,7 +454,6 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
     return filteredOrders.slice(startIndex, endIndex);
   }, [filteredOrders, startIndex, endIndex]);
 
-  // Helper para gerar a régua de páginas numeradas
   const paginationRange = useMemo(() => {
     const delta = 1;
     const range: (number | string)[] = [];
@@ -526,7 +475,6 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Botão de Destaque no topo da aba de Pedidos */}
       <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 text-white p-5 sm:p-6 rounded-2xl border border-slate-800 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
@@ -546,7 +494,6 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
           </p>
         </div>
 
-        {/* Botão de Destaque '+ Novo Pedido' */}
         <button
           onClick={() => setIsModalOpen(true)}
           className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 active:bg-amber-600 text-slate-950 font-bold text-xs sm:text-sm tracking-wide shadow-md hover:shadow-lg transition-all transform hover:-translate-y-0.5 whitespace-nowrap cursor-pointer shrink-0"
@@ -556,7 +503,6 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
         </button>
       </div>
 
-      {/* CONTROLE DE FILTRO DE PERÍODO POR MÊS NO TOPO DA ABA PEDIDOS */}
       <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/90 shadow-xs">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div className="flex items-center gap-2.5">
@@ -582,7 +528,6 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
             </div>
           </div>
 
-          {/* Atalhos Rápidos e Dropdown Múltiplo */}
           <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
             <div className="flex items-center gap-1.5 flex-wrap">
               <button
@@ -622,7 +567,6 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
               </button>
             </div>
 
-            {/* Dropdown Múltiplo com Checkboxes */}
             <div className="relative" ref={monthDropdownRef}>
               <button
                 type="button"
@@ -697,9 +641,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
         </div>
       </div>
 
-      {/* Metrics Banner - 8 Cards Padronizados em Grid quebrando em 2 linhas */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-        {/* 1. Total de Pedidos */}
         <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200/90 shadow-xs flex flex-col justify-between min-h-[105px]">
           <div className="text-xs text-slate-500 font-medium leading-tight min-h-[30px] flex items-center whitespace-normal break-words">
             <span>Total de<br />Pedidos</span>
@@ -712,7 +654,6 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
           </div>
         </div>
 
-        {/* 2. Volume de Vendas (Subtrai pedidos cancelados) */}
         <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200/90 shadow-xs flex flex-col justify-between min-h-[105px]">
           <div className="text-xs text-slate-500 font-medium leading-tight min-h-[30px] flex items-center whitespace-normal break-words">
             <span>Volume de<br />Vendas</span>
@@ -725,7 +666,6 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
           </div>
         </div>
 
-        {/* 3. Ticket Médio Pedido */}
         <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200/90 shadow-xs flex flex-col justify-between min-h-[105px]">
           <div className="text-xs text-slate-500 font-medium leading-tight min-h-[30px] flex items-center whitespace-normal break-words">
             <span>Ticket Médio<br />Pedido</span>
@@ -738,7 +678,6 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
           </div>
         </div>
 
-        {/* 4. Total de Itens */}
         <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200/90 shadow-xs flex flex-col justify-between min-h-[105px]">
           <div className="text-xs text-slate-500 font-medium leading-tight min-h-[30px] flex items-center whitespace-normal break-words">
             <span>Total de<br />Itens</span>
@@ -751,7 +690,6 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
           </div>
         </div>
 
-        {/* 5. Ticket médio Itens */}
         <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200/90 shadow-xs flex flex-col justify-between min-h-[105px]">
           <div className="text-xs text-slate-500 font-medium leading-tight min-h-[30px] flex items-center whitespace-normal break-words">
             <span>Ticket médio<br />Itens</span>
@@ -764,7 +702,6 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
           </div>
         </div>
 
-        {/* 6. Sobra de Frete Real */}
         <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200/90 shadow-xs flex flex-col justify-between min-h-[105px]">
           <div className="text-xs text-slate-500 font-medium leading-tight min-h-[30px] flex items-center whitespace-normal break-words">
             <span>Sobra Frete<br />Real</span>
@@ -777,7 +714,6 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
           </div>
         </div>
 
-        {/* 7. Pedidos Cancelados */}
         <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200/90 shadow-xs flex flex-col justify-between min-h-[105px]">
           <div className="text-xs text-slate-500 font-medium leading-tight min-h-[30px] flex items-center whitespace-normal break-words">
             <span>Pedidos<br />Cancelados</span>
@@ -790,7 +726,6 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
           </div>
         </div>
 
-        {/* 8. Valores Devolvidos */}
         <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200/90 shadow-xs flex flex-col justify-between min-h-[105px]">
           <div className="text-xs text-slate-500 font-medium leading-tight min-h-[30px] flex items-center whitespace-normal break-words">
             <span>Valores<br />Devolvidos</span>
@@ -804,7 +739,6 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
         </div>
       </div>
 
-      {/* Filter and Search Bar */}
       <div className="bg-white p-4 rounded-xl border border-slate-200/90 shadow-xs space-y-3">
         <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
           <div className="relative flex-1">
@@ -818,7 +752,6 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
             />
           </div>
 
-          {/* Filters */}
           <div className="flex flex-wrap sm:flex-nowrap items-center gap-2">
             <div className="flex items-center gap-1.5 w-full sm:w-auto">
               <Filter className="w-3.5 h-3.5 text-slate-400 shrink-0" />
@@ -851,7 +784,6 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
               <option value="cancelado_estornado">Cancelado e Estornado</option>
             </select>
 
-            {/* Botão de Exportação Discreto */}
             <button
               type="button"
               onClick={handleExport}
@@ -864,7 +796,6 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
           </div>
         </div>
 
-        {/* Filter chips / count */}
         <div className="flex items-center justify-between text-xs text-slate-500 pt-1 border-t border-slate-100 flex-wrap gap-2">
           <div className="flex items-center gap-2 flex-wrap">
             <span>
@@ -872,7 +803,6 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
               <span className="font-mono font-semibold text-slate-800">{filteredOrders.length}</span> pedidos no período ({orders.length} no total geral)
             </span>
 
-            {/* Chips de filtros ativos nas colunas */}
             {filterInternalId && (
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-medium">
                 Interno: <strong className="font-mono">{filterInternalId}</strong>
@@ -934,13 +864,11 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
         </div>
       </div>
 
-      {/* Orders Table Container with Horizontal Scroll Isolation */}
       <div className="bg-white rounded-xl border border-slate-200/90 shadow-xs overflow-hidden">
         <div className="w-full max-w-[100vw] overflow-x-auto">
           <table className="w-full min-w-[980px] text-left border-collapse">
             <thead>
               <tr className="bg-slate-50/90 border-b border-slate-200 text-[11px] font-semibold text-slate-500 uppercase tracking-wider select-none">
-                {/* 1. Pedido Interno */}
                 <th className="py-2.5 px-2.5 sm:px-3 relative text-left">
                   <div className="flex items-center gap-1">
                     <span className="font-semibold leading-tight">Pedido Interno</span>
@@ -950,7 +878,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                       className={`p-1 rounded hover:bg-slate-200/80 transition-colors cursor-pointer shrink-0 ${
                         sortField === 'id' ? 'text-amber-700 font-bold bg-amber-100/70' : 'text-slate-400'
                       }`}
-                      title={sortField === 'id' ? (sortDirection === 'asc' ? 'Ordenado Crescente (clique para decrescente)' : 'Ordenado Decrescente (clique para crescente)') : 'Ordenar por Pedido Interno'}
+                      title="Ordenar por Pedido Interno"
                     >
                       {sortField === 'id' ? (
                         sortDirection === 'asc' ? <ArrowUp className="w-3.5 h-3.5" /> : <ArrowDown className="w-3.5 h-3.5" />
@@ -968,7 +896,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                         className={`p-1 rounded hover:bg-slate-200/80 transition-colors cursor-pointer relative ${
                           filterInternalId ? 'bg-amber-100 text-amber-800 font-bold' : activeFilterPopover === 'internalId' ? 'bg-slate-200 text-slate-800' : 'text-slate-400'
                         }`}
-                        title="Filtrar por Pedido Interno (ID do sistema)"
+                        title="Filtrar por Pedido Interno"
                       >
                         <Search className="w-3 h-3" />
                         {filterInternalId && (
@@ -1012,25 +940,12 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                               </button>
                             )}
                           </div>
-                          {filterInternalId && (
-                            <div className="mt-1.5 pt-1.5 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-500">
-                              <span>{filteredOrders.length} resultado(s)</span>
-                              <button
-                                type="button"
-                                onClick={() => setFilterInternalId('')}
-                                className="text-amber-700 hover:underline font-semibold cursor-pointer"
-                              >
-                                Limpar
-                              </button>
-                            </div>
-                          )}
                         </div>
                       )}
                     </div>
                   </div>
                 </th>
 
-                {/* 2. Pedido Cliente (Código amigável para o cliente) */}
                 <th className="py-2.5 px-2.5 sm:px-3 relative text-left">
                   <div className="flex items-center gap-1">
                     <span className="font-semibold leading-tight">Pedido Cliente</span>
@@ -1040,7 +955,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                       className={`p-1 rounded hover:bg-slate-200/80 transition-colors cursor-pointer shrink-0 ${
                         sortField === 'codigoCliente' ? 'text-indigo-700 font-bold bg-indigo-100/70' : 'text-slate-400'
                       }`}
-                      title={sortField === 'codigoCliente' ? (sortDirection === 'asc' ? 'Ordenado Crescente (clique para decrescente)' : 'Ordenado Decrescente (clique para crescente)') : 'Ordenar por Pedido Cliente'}
+                      title="Ordenar por Pedido Cliente"
                     >
                       {sortField === 'codigoCliente' ? (
                         sortDirection === 'asc' ? <ArrowUp className="w-3.5 h-3.5" /> : <ArrowDown className="w-3.5 h-3.5" />
@@ -1058,7 +973,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                         className={`p-1 rounded hover:bg-slate-200/80 transition-colors cursor-pointer relative ${
                           filterCodigoCliente ? 'bg-indigo-100 text-indigo-800 font-bold' : activeFilterPopover === 'codigoCliente' ? 'bg-slate-200 text-slate-800' : 'text-slate-400'
                         }`}
-                        title="Filtrar por Código do Cliente (ex: ABC1234)"
+                        title="Filtrar por Código do Cliente"
                       >
                         <Search className="w-3 h-3" />
                         {filterCodigoCliente && (
@@ -1102,25 +1017,12 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                               </button>
                             )}
                           </div>
-                          {filterCodigoCliente && (
-                            <div className="mt-1.5 pt-1.5 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-500">
-                              <span>{filteredOrders.length} resultado(s)</span>
-                              <button
-                                type="button"
-                                onClick={() => setFilterCodigoCliente('')}
-                                className="text-indigo-700 hover:underline font-semibold cursor-pointer"
-                              >
-                                Limpar
-                              </button>
-                            </div>
-                          )}
                         </div>
                       )}
                     </div>
                   </div>
                 </th>
 
-                {/* 3. Data */}
                 <th className="py-2.5 px-2.5 sm:px-3 text-left">
                   <div className="flex items-center gap-1">
                     <span className="font-semibold leading-tight">Data</span>
@@ -1130,7 +1032,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                       className={`p-1 rounded hover:bg-slate-200/80 transition-colors cursor-pointer shrink-0 ${
                         sortField === 'date' ? 'text-amber-700 font-bold bg-amber-100/70' : 'text-slate-400'
                       }`}
-                      title={sortField === 'date' ? (sortDirection === 'desc' ? 'Mais recente para mais antiga (clique para inverter)' : 'Mais antiga para mais recente (clique para inverter)') : 'Ordenar por Data'}
+                      title="Ordenar por Data"
                     >
                       {sortField === 'date' ? (
                         sortDirection === 'asc' ? <ArrowUp className="w-3.5 h-3.5" /> : <ArrowDown className="w-3.5 h-3.5" />
@@ -1141,7 +1043,6 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                   </div>
                 </th>
 
-                {/* 4. Cliente */}
                 <th className="py-2.5 px-2.5 sm:px-3 relative text-left">
                   <div className="flex items-center gap-1">
                     <span className="font-semibold leading-tight">Cliente</span>
@@ -1151,7 +1052,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                       className={`p-1 rounded hover:bg-slate-200/80 transition-colors cursor-pointer shrink-0 ${
                         sortField === 'clientName' ? 'text-amber-700 font-bold bg-amber-100/70' : 'text-slate-400'
                       }`}
-                      title={sortField === 'clientName' ? (sortDirection === 'asc' ? 'A-Z (clique para Z-A)' : 'Z-A (clique para A-Z)') : 'Ordenar por Nome do Cliente'}
+                      title="Ordenar por Nome do Cliente"
                     >
                       {sortField === 'clientName' ? (
                         sortDirection === 'asc' ? <ArrowUp className="w-3.5 h-3.5" /> : <ArrowDown className="w-3.5 h-3.5" />
@@ -1213,18 +1114,6 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                               </button>
                             )}
                           </div>
-                          {filterClientName && (
-                            <div className="mt-1.5 pt-1.5 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-500">
-                              <span>{filteredOrders.length} resultado(s)</span>
-                              <button
-                                type="button"
-                                onClick={() => setFilterClientName('')}
-                                className="text-amber-700 hover:underline font-semibold cursor-pointer"
-                              >
-                                Limpar
-                              </button>
-                            </div>
-                          )}
                         </div>
                       )}
                     </div>
@@ -1247,20 +1136,11 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                     <p className="font-semibold text-gray-700">Nenhum pedido encontrado</p>
                     <p className="text-xs text-gray-400 mt-0.5 max-w-md mx-auto">
                       {orders.length === 0
-                        ? 'O sistema está pronto para testes reais. Crie um novo pedido no botão "+ Novo Pedido" ou utilize a ferramenta de importação de histórico.'
+                        ? 'O sistema está pronto para testes reais. Crie um novo pedido no botão "+ Novo Pedido".'
                         : mesesSelecionados.length === 0
                         ? 'Nenhum mês está selecionado no filtro de período. Clique em "Mês Atual" ou selecione um mês acima.'
-                        : 'Nenhum pedido corresponde aos critérios nos meses selecionados. Tente alterar os termos de busca ou selecionar outros meses no filtro.'}
+                        : 'Nenhum pedido corresponde aos critérios nos meses selecionados.'}
                     </p>
-                    {orders.length > 0 && mesesSelecionados.length === 0 && (
-                      <button
-                        type="button"
-                        onClick={handleSelectCurrentMonth}
-                        className="mt-3 px-3.5 py-1.5 rounded-lg bg-amber-500 text-slate-950 font-bold text-xs hover:bg-amber-400 transition-colors cursor-pointer"
-                      >
-                        Ativar Mês Atual ({formatMonthYearLabel(currentMonthKey, 'short')})
-                      </button>
-                    )}
                   </td>
                 </tr>
               ) : (
@@ -1271,7 +1151,6 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                       key={order.id}
                       className="hover:bg-slate-50/70 transition-colors group"
                     >
-                      {/* 1. Pedido Interno (formato XXXYYZZ) */}
                       <td className="py-2.5 px-2.5 sm:px-3 font-mono font-bold text-slate-900 whitespace-nowrap">
                         <button
                           onClick={() => onSelectOrder(order)}
@@ -1282,7 +1161,6 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                         </button>
                       </td>
 
-                      {/* 2. Pedido Cliente (Código amigável ABC1234 com destaque) */}
                       <td className="py-2.5 px-2.5 sm:px-3 whitespace-nowrap">
                         {order.codigoCliente ? (
                           <span
@@ -1299,12 +1177,10 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                         )}
                       </td>
 
-                      {/* 3. Data do Pedido */}
                       <td className="py-2.5 px-2.5 sm:px-3 font-mono text-slate-600 whitespace-nowrap text-xs">
                         {formatDate(order.createdAt)}
                       </td>
 
-                      {/* 4. Cliente */}
                       <td className="py-2.5 px-2.5 sm:px-3 whitespace-nowrap">
                         <div className="font-medium text-slate-900 leading-tight">{order.clientName}</div>
                         <div className="text-[10px] text-slate-500">
@@ -1312,7 +1188,6 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                         </div>
                       </td>
 
-                      {/* Itens do Pedido */}
                       <td className="py-2.5 px-2.5 sm:px-3">
                         {order.items && order.items.length > 0 ? (
                           <div className="space-y-0.5">
@@ -1345,7 +1220,6 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                         )}
                       </td>
 
-                      {/* Valor Total Pago */}
                       <td className="py-2.5 px-2.5 sm:px-3 text-right whitespace-nowrap">
                         <div className="font-mono font-bold text-slate-900 tabular-nums">
                           {formatBRL(order.saleValue || 0)}
@@ -1357,7 +1231,6 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                         ) : null}
                       </td>
 
-                      {/* Frete & Logística */}
                       <td className="py-2.5 px-2.5 sm:px-3 text-right whitespace-nowrap">
                         <div className="font-mono tabular-nums">
                           {order.shippingCharged === 0 ? (
@@ -1376,7 +1249,6 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                         </div>
                       </td>
 
-                      {/* Forma de Pagto */}
                       <td className="py-2.5 px-2.5 sm:px-3 whitespace-nowrap">
                         <div className="space-y-0.5">
                           <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-mono font-medium bg-slate-100 text-slate-800 border border-slate-200">
@@ -1400,7 +1272,6 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                         </div>
                       </td>
 
-                      {/* Status Geral */}
                       <td className="py-2.5 px-2.5 sm:px-3 whitespace-nowrap">
                         <span
                           className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${status?.bg || 'bg-slate-100'} ${status?.color || 'text-slate-800'} ${status?.border || 'border-slate-200'}`}
@@ -1409,10 +1280,8 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                         </span>
                       </td>
 
-                      {/* Ações (Otimizada e compacta) */}
                       <td className="py-2.5 px-2.5 sm:px-3 text-center whitespace-nowrap">
                         <div className="inline-flex items-center gap-1">
-                          {/* 1. Botão 'Avisar Cliente' via WhatsApp (APENAS Ícone com title/tooltip) */}
                           <button
                             type="button"
                             onClick={(e) => {
@@ -1426,9 +1295,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                             <MessageCircle className="w-3.5 h-3.5" />
                           </button>
 
-                          {/* 2. FLUXO DE CANCELAMENTO E ESTORNO */}
                           {order.status === 'cancelado' ? (
-                            /* Pedido Cancelado -> Devolver R$ */
                             <button
                               type="button"
                               onClick={(e) => {
@@ -1436,22 +1303,20 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                                 handleRefundOrder(order);
                               }}
                               className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-bold bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-slate-950 shadow-2xs transition-colors cursor-pointer whitespace-nowrap"
-                              title={`Registrar devolução (estorno) de ${formatBRL(order.saleValue || 0)} para ${order.clientName}`}
+                              title="Registrar devolução (estorno)"
                             >
                               <RotateCcw className="w-3.5 h-3.5" />
                               <span>Devolver R$</span>
                             </button>
                           ) : order.status === 'cancelado_estornado' ? (
-                            /* Pedido Estornado */
                             <span
                               className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-bold bg-amber-50 text-amber-900 border border-amber-300 shadow-2xs whitespace-nowrap"
-                              title={`Estorno financeiro efetuado ${order.dataEstorno ? `em ${order.dataEstorno}` : ''} (flag estornado: true)`}
+                              title="Estorno financeiro efetuado"
                             >
                               <CheckCircle2 className="w-3.5 h-3.5 text-amber-600" />
                               <span>Estornado</span>
                             </span>
                           ) : (
-                            /* Pedidos Ativos -> Opção de Cancelar (texto 'Cancelar') */
                             !isViewer && (
                               <button
                                 type="button"
@@ -1460,7 +1325,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                                   handleCancelarPedido(order.id);
                                 }}
                                 className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-rose-700 hover:text-rose-900 bg-rose-50 hover:bg-rose-100/90 border border-rose-200/90 transition-colors cursor-pointer whitespace-nowrap"
-                                title="Cancelar Pedido (atualiza o status para Cancelado e estorna o valor)"
+                                title="Cancelar Pedido"
                               >
                                 <Ban className="w-3.5 h-3.5 text-rose-600" />
                                 <span>Cancelar</span>
@@ -1468,7 +1333,6 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                             )
                           )}
 
-                          {/* Botão de Editar Pedido (Lápis discreto) */}
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
@@ -1480,7 +1344,6 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                             <Edit3 className="w-3.5 h-3.5" />
                           </button>
 
-                          {/* Botão de Ver Detalhes */}
                           <button
                             onClick={() => onSelectOrder(order)}
                             className="p-1.5 rounded-lg text-slate-500 hover:text-amber-700 hover:bg-amber-50 transition-colors cursor-pointer"
@@ -1492,7 +1355,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                           {!isViewer && (
                             <button
                               onClick={() => {
-                                if (window.confirm(`Deseja remover definitivamente o registro do pedido #${order.id}?\n\nNota: Para cancelamentos operacionais, utilize o botão 'Cancelar' que preserva o histórico.`)) {
+                                if (window.confirm(`Deseja remover definitivamente o registro do pedido #${order.id}?`)) {
                                   onDeleteOrder(order.id);
                                 }
                               }}
@@ -1512,25 +1375,16 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
           </table>
         </div>
 
-        {/* Rodapé com Controles de Paginação (Client-Side - Máximo 12 pedidos por página) */}
         {filteredOrders.length > 0 && (
           <div className="px-4 py-3 border-t border-slate-200/90 bg-slate-50/70 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
-            {/* Informações da página */}
             <div className="text-slate-600 text-center sm:text-left">
               Mostrando <span className="font-mono font-bold text-slate-900">{startIndex + 1}</span> a{' '}
               <span className="font-mono font-bold text-slate-900">{endIndex}</span> de{' '}
               <span className="font-mono font-bold text-slate-900">{filteredOrders.length}</span> pedidos
-              {totalPages > 1 && (
-                <span className="text-slate-400 ml-1.5 hidden sm:inline">
-                  (Página <strong className="text-slate-700 font-mono">{currentPage}</strong> de <strong className="text-slate-700 font-mono">{totalPages}</strong>)
-                </span>
-              )}
             </div>
 
-            {/* Controles de Navegação */}
             {totalPages > 1 && (
               <div className="flex items-center gap-1">
-                {/* Botão Primeira Página (se houver muitas páginas) */}
                 {totalPages > 4 && (
                   <button
                     type="button"
@@ -1538,33 +1392,26 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                     disabled={currentPage === 1}
                     className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer shadow-2xs"
                     title="Primeira página"
-                    aria-label="Primeira página"
                   >
                     <ChevronsLeft className="w-3.5 h-3.5" />
                   </button>
                 )}
 
-                {/* Botão Anterior */}
                 <button
                   type="button"
                   onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                   disabled={currentPage === 1}
                   className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed font-medium transition-colors cursor-pointer shadow-2xs"
-                  title="Página anterior"
                 >
                   <ChevronLeft className="w-3.5 h-3.5" />
                   <span className="hidden sm:inline">Anterior</span>
                 </button>
 
-                {/* Numeração de Páginas */}
                 <div className="flex items-center gap-1 mx-1">
                   {paginationRange.map((pageItem, idx) => {
                     if (pageItem === '...') {
                       return (
-                        <span
-                          key={`dots-${idx}`}
-                          className="px-1.5 py-1 text-slate-400 select-none font-mono text-xs"
-                        >
+                        <span key={`dots-${idx}`} className="px-1.5 py-1 text-slate-400 select-none font-mono text-xs">
                           ...
                         </span>
                       );
@@ -1583,7 +1430,6 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                             ? 'bg-amber-500 text-slate-950 shadow-2xs ring-1 ring-amber-600/30'
                             : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 hover:border-slate-300'
                         }`}
-                        title={`Ir para página ${pageNumber}`}
                       >
                         {pageNumber}
                       </button>
@@ -1591,19 +1437,16 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                   })}
                 </div>
 
-                {/* Botão Próximo */}
                 <button
                   type="button"
                   onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                   disabled={currentPage === totalPages}
                   className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed font-medium transition-colors cursor-pointer shadow-2xs"
-                  title="Próxima página"
                 >
                   <span className="hidden sm:inline">Próximo</span>
                   <ChevronRight className="w-3.5 h-3.5" />
                 </button>
 
-                {/* Botão Última Página (se houver muitas páginas) */}
                 {totalPages > 4 && (
                   <button
                     type="button"
@@ -1611,7 +1454,6 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                     disabled={currentPage === totalPages}
                     className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer shadow-2xs"
                     title="Última página"
-                    aria-label="Última página"
                   >
                     <ChevronsRight className="w-3.5 h-3.5" />
                   </button>
@@ -1622,7 +1464,6 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
         )}
       </div>
 
-      {/* Modal Centralizado de Novo Pedido (Acionado pelo botão de destaque) */}
       <NewOrderModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
@@ -1638,7 +1479,6 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
         userRole={userRole}
       />
 
-      {/* Modal de Edição de Pedido & Inclusão de Itens */}
       <EditOrderModal
         isOpen={!!editingOrder}
         order={editingOrder}
@@ -1653,14 +1493,12 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
         userRole={userRole}
       />
 
-      {/* Modal Reforçado de Aviso ao Cliente (Dialog pré-formatado com Abrir WhatsApp e Copiar Mensagem) */}
       <NotifyCustomerModal
         isOpen={!!notifyingOrder}
         onClose={() => setNotifyingOrder(null)}
         order={notifyingOrder}
       />
 
-      {/* Toast Notification de Exportação e Alertas */}
       {toastMessage && (
         <div className="fixed bottom-5 right-5 z-50 bg-slate-900 text-white px-4 py-3 rounded-2xl shadow-2xl border border-slate-700 flex items-center gap-3 animate-in slide-in-from-bottom-5 duration-200">
           <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-500/30">
