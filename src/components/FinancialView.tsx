@@ -339,16 +339,47 @@ export const FinancialView: React.FC<FinancialViewProps> = ({ orders, onSelectOr
       totalMain = formatBRL(totalDespesasGerais);
       totalLabel = 'Total de despesas operacionais registradas no período';
 
+      const fixas = monthFilteredExpenses.filter((e) => e.categoryGroup === 'Custos Fixos');
+      const variaveis = monthFilteredExpenses.filter((e) => e.categoryGroup === 'Custos Variáveis');
+
       content = (
-        <div className="space-y-3 font-mono text-xs">
-          <div className="flex justify-between items-center py-1.5 border-b border-slate-100">
-            <span className="text-slate-500 font-sans">Custos Fixos (Aluguel, Sistemas, etc.)</span>
-            <span className="text-orange-600 font-medium">{formatBRL(totalDespesasFixas)}</span>
+        <div className="space-y-4 font-mono text-xs">
+          <div className="max-h-[300px] overflow-y-auto pr-2 space-y-4">
+            {fixas.length > 0 && (
+              <div className="space-y-1.5">
+                <div className="flex justify-between items-center py-1 border-b border-slate-200 font-bold text-slate-700 font-sans">
+                  <span>Custos Fixos</span>
+                  <span>{formatBRL(totalDespesasFixas)}</span>
+                </div>
+                {fixas.map(exp => (
+                  <div key={exp.id} className="flex justify-between items-center py-1 pl-2 border-b border-slate-50 last:border-0">
+                    <span className="text-slate-500 font-sans truncate pr-2 flex-1" title={exp.description}>{exp.description}</span>
+                    <span className="text-orange-600 font-medium">{formatBRL(exp.amount)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {variaveis.length > 0 && (
+              <div className="space-y-1.5">
+                <div className="flex justify-between items-center py-1 border-b border-slate-200 font-bold text-slate-700 font-sans">
+                  <span>Custos Variáveis</span>
+                  <span>{formatBRL(totalDespesasVariaveis)}</span>
+                </div>
+                {variaveis.map(exp => (
+                  <div key={exp.id} className="flex justify-between items-center py-1 pl-2 border-b border-slate-50 last:border-0">
+                    <span className="text-slate-500 font-sans truncate pr-2 flex-1" title={exp.description}>{exp.description}</span>
+                    <span className="text-orange-600 font-medium">{formatBRL(exp.amount)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {monthFilteredExpenses.length === 0 && (
+              <div className="text-center py-4 text-slate-400 font-sans">Nenhuma despesa registrada no período.</div>
+            )}
           </div>
-          <div className="flex justify-between items-center py-1.5 border-b border-slate-100">
-            <span className="text-slate-500 font-sans">Custos Variáveis (Embalagens, Tráfego)</span>
-            <span className="text-orange-600 font-medium">{formatBRL(totalDespesasVariaveis)}</span>
-          </div>
+          
           <div className="p-3 bg-slate-50 rounded-lg text-[11px] text-slate-500 font-sans leading-relaxed border border-slate-200 mt-2">
             As despesas são subtraídas do Lucro Bruto para formar o seu Lucro Líquido Real.
           </div>
