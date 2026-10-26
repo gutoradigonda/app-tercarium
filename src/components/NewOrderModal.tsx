@@ -104,15 +104,12 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
 }) => {
   const isViewer = userRole === 'leitura';
 
-  // Cabeçalho inteligente: Data do Pedido e Número do Pedido (formato XXXYYZZ)
   const [orderDate, setOrderDate] = useState<string>(getTodayDateFormatted());
   const [orderId, setOrderId] = useState<string>('');
   const [isManualOrderId, setIsManualOrderId] = useState<boolean>(false);
 
-  // Seleção de cliente cadastrado
   const [selectedClientId, setSelectedClientId] = useState<string>('');
 
-  // Endereço para Entrega
   const [deliveryAddressType, setDeliveryAddressType] = useState<'same' | 'custom'>('same');
   const [customRecipientName, setCustomRecipientName] = useState('');
   const [customDeliveryAddress, setCustomDeliveryAddress] = useState('');
@@ -120,15 +117,13 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
   const [customDeliveryState, setCustomDeliveryState] = useState('SP');
   const [customDeliveryCep, setCustomDeliveryCep] = useState('');
 
-  // Carrinho de Compras / Múltiplos Itens (com Snapshot de Preços)
   const [cartItems, setCartItems] = useState<OrderItem[]>([]);
   const [selectedCatalogProductId, setSelectedCatalogProductId] = useState<string>('');
-  const [selectedExtraProductId, setSelectedExtraProductId] = useState<string>(''); // "" significa "Nenhum"
+  const [selectedExtraProductId, setSelectedExtraProductId] = useState<string>('');
   const [addItemObservacao, setAddItemObservacao] = useState<string>('');
   const [addItemQty, setAddItemQty] = useState<number>(1);
   const [showItemPicker, setShowItemPicker] = useState<boolean>(false);
 
-  // Modal / formulário rápido para cadastrar novo produto na hora
   const [isQuickProductModalOpen, setIsQuickProductModalOpen] = useState(false);
   const [quickCode, setQuickCode] = useState('');
   const [quickCategory, setQuickCategory] = useState<ProductCategory>('Terços');
@@ -139,51 +134,47 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
   const [quickSalePrice, setQuickSalePrice] = useState<number | ''>(160);
   const [quickProductError, setQuickProductError] = useState<string | null>(null);
 
-  // Fechamento Financeiro e Frete
-  const [discountPercent, setDiscountPercent] = useState<number | ''>(0);
+  const [discountPercent, setDiscountPercent] = useState<number | ''>(5); // Padrão inicial 5% para Pix
   const [isFreeShipping, setIsFreeShipping] = useState<boolean>(false);
   const [shippingCharged, setShippingCharged] = useState<number | ''>(22);
   const [shippingPaid, setShippingPaid] = useState<number | ''>(22);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('pix');
 
-  // Dados operacionais de logística e envio
+  // Efeito automático: Se a forma de pagamento for PIX, define 5% de desconto automático
+  useEffect(() => {
+    if (paymentMethod === 'pix') {
+      setDiscountPercent(5);
+    } else {
+      setDiscountPercent(0);
+    }
+  }, [paymentMethod]);
+
   const [shippingPlatform, setShippingPlatform] = useState<ShippingPlatform>('Melhor Envio');
   const [customShippingPlatform, setCustomShippingPlatform] = useState<string>('');
   const [carrier, setCarrier] = useState<ShippingCarrier>('Correios PAC');
   const [customCarrier, setCustomCarrier] = useState<string>('');
   const [trackingCode, setTrackingCode] = useState<string>('');
 
-  // Error validation message
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Lista de clientes ordenada sempre em ordem alfabética (A-Z)
   const sortedClients = useMemo(() => {
     return [...clients].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR', { sensitivity: 'base' }));
   }, [clients]);
 
-  // Produtos ordenados e agrupados rigorosamente (Categoria A-Z -> LINHA A-Z -> Modelo A-Z)
   const sortedProducts = useMemo(() => {
     return [...products].sort(sortProductsHierarchically);
   }, [products]);
 
-  // Produtos principais para o select de produto (exclui categoria "Extras")
   const mainCatalogProducts = useMemo(() => {
     return sortedProducts.filter((p) => p.category !== 'Extras');
   }, [sortedProducts]);
 
-  // Lista exclusiva de Itens Extras / Upsell (onde categoria === "Extras")
   const extraProducts = useMemo(() => {
     return sortedProducts.filter((p) => p.category === 'Extras');
   }, [sortedProducts]);
 
-  // Lista de categorias distintas de produtos (preservando ordenação alfabética da hierarquia)
-  const productCategories = useMemo(() => {
-    return Array.from(new Set(sortedProducts.map((p) => p.category)));
-  }, [sortedProducts]);
-
   const currentSelectedClient = clients.find((c) => c.id === selectedClientId);
 
-  // Inicialização inteligente do modal
   useEffect(() => {
     if (isOpen) {
       if (initialData) {
@@ -201,7 +192,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
         } else if (typeof initialData.shippingCharged === 'number') {
           setShippingPaid(initialData.shippingCharged);
         }
-        // Binding da Plataforma de Envio (plataformaSelecionada ou shippingPlatform)
         const plat = initialData.plataformaSelecionada || initialData.shippingPlatform || '';
         if (plat) {
           const pLower = plat.toLowerCase();
@@ -228,7 +218,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
           }
         }
 
-        // Binding da Transportadora (transportadoraSelecionada ou carrier)
         const transp = initialData.transportadoraSelecionada || initialData.carrier || '';
         if (transp) {
           const tLower = transp.toLowerCase();
@@ -281,7 +270,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
     }
   }, [isOpen, initialData, orderDate, orders, isManualOrderId, clients, selectedClientId, mainCatalogProducts, selectedCatalogProductId]);
 
-  // Sincroniza o nome do recebedor padrão no modo endereço customizado
   useEffect(() => {
     if (deliveryAddressType === 'custom' && !customRecipientName) {
       const defaultName = currentSelectedClient?.name || '';
@@ -291,7 +279,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
     }
   }, [deliveryAddressType, currentSelectedClient, customRecipientName]);
 
-  // Alteração de data recalcula sequencial do pedido
   const handleDateChange = (val: string) => {
     setOrderDate(val);
     const nextSeq = calculateNextOrderId(val, orders);
@@ -299,7 +286,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
     setIsManualOrderId(false);
   };
 
-  // Funções de manipulação do carrinho de múltiplos itens (com suporte dinâmico a Extras e Observação)
   const handleAddProductToCart = (product: Product, quantityToAdd: number, extraId?: string, observacao?: string) => {
     const qty = Math.max(1, quantityToAdd);
     const extra = extraProducts.find((p) => p.id === extraId);
@@ -311,7 +297,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
     const modelName = extra ? `${product.model} + ${extra.model}` : product.model;
     const cleanObs = (observacao || '').trim() || undefined;
 
-    // Distingue itens com ou sem o mesmo extra e mesma observação no carrinho
     const existingIndex = cartItems.findIndex(
       (it) => it.productId === product.id && 
               it.extraProductId === (extra ? extra.id : undefined) &&
@@ -319,7 +304,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
     );
 
     if (existingIndex >= 0) {
-      // Incrementa quantidade mantendo o snapshot já existente
       setCartItems((prev) =>
         prev.map((it, idx) => {
           if (idx === existingIndex) {
@@ -335,7 +319,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
         })
       );
     } else {
-      // REGRA DE OURO: Salva snapshot de Preço de Custo e de Venda somando o Extra e Observação dinamicamente
       const newItem: OrderItem = {
         id: `ITM-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
         productId: product.id,
@@ -385,7 +368,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
     setCartItems((prev) => prev.filter((_, idx) => idx !== index));
   };
 
-  // Cadastro rápido de novo produto pelo modal de pedido
   const handleSaveQuickProduct = (e: React.FormEvent) => {
     e.preventDefault();
     setQuickProductError(null);
@@ -429,10 +411,8 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
     };
 
     onAddProduct(newProd);
-    // Adiciona direto ao pedido atual com snapshot
     handleAddProductToCart(newProd, 1);
 
-    // Reset campos rápidos
     setIsQuickProductModalOpen(false);
     setQuickCode('');
     setQuickModel('');
@@ -443,30 +423,23 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
     setQuickProductError(null);
   };
 
-  // Cálculos Financeiros Dinâmicos
   const subtotal = cartItems.reduce((acc, it) => acc + it.totalPrice, 0);
   const totalProductionCost = cartItems.reduce((acc, it) => acc + it.totalCost, 0);
 
-  // Desconto em porcentagem (%) e valor calculado sobre o Subtotal
   const numDiscountPercent = typeof discountPercent === 'number' ? Math.max(0, Math.min(100, discountPercent)) : 0;
   const calculatedDiscount = (subtotal * numDiscountPercent) / 100;
 
-  // Frete Cobrado (zerado automaticamente se Frete Grátis) e Frete Cotado
   const numShippingCharged = isFreeShipping ? 0 : (typeof shippingCharged === 'number' ? Math.max(0, shippingCharged) : 0);
   const numShippingPaid = typeof shippingPaid === 'number' ? Math.max(0, shippingPaid) : 0;
 
-  // Valor Total Pago (o que o cliente paga) = (Subtotal de Venda - Valor do Desconto em %) + Frete Cobrado
   const saleValue = Math.max(0, (subtotal - calculatedDiscount) + numShippingCharged);
 
   const factor = PAYMENT_FACTORS[paymentMethod] ?? 1.0;
   const netProductSale = Math.max(0, subtotal - calculatedDiscount);
   const netPrice = netProductSale * factor;
 
-  // A SOBRA DO FRETE = (Frete Cobrado - Frete Cotado)
   const shippingSurplus = numShippingCharged - numShippingPaid;
 
-  // FÓRMULA EXATA DO LUCRO:
-  // (Subtotal de Venda - Desconto Aplicado - Custo Total dos Produtos) + (Frete Cobrado - Frete Cotado)
   const productProfit = (subtotal - calculatedDiscount) - totalProductionCost;
   const estimatedProfit = productProfit + shippingSurplus;
   const estimatedMargin = saleValue > 0 ? (estimatedProfit / saleValue) * 100 : 0;
@@ -485,7 +458,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
     e.preventDefault();
     setErrorMessage(null);
 
-    // Validação da Data e Número do Pedido
     if (!orderDate.trim()) {
       setErrorMessage('Por favor, informe a Data do Pedido.');
       return;
@@ -496,7 +468,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
       return;
     }
 
-    // Validação de Itens no Carrinho
     if (cartItems.length === 0) {
       setErrorMessage('Nenhum item adicionado. Clique no botão acima para incluir produtos.');
       return;
@@ -516,7 +487,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
     const clientState = currentSelectedClient.state;
     const clientCep = currentSelectedClient.cep || '';
 
-    // Validação de Endereço de Entrega
     if (deliveryAddressType === 'custom') {
       if (!customRecipientName.trim()) {
         setErrorMessage('Por favor, informe o Nome do Recebedor na entrega.');
@@ -541,7 +511,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
     const finalDeliveryState = deliveryAddressType === 'custom' ? customDeliveryState.trim() : clientState;
     const finalDeliveryCep = deliveryAddressType === 'custom' ? customDeliveryCep.trim() : clientCep;
 
-    // Resumo descritivo dos itens
     const totalItemsCount = cartItems.reduce((acc, it) => acc + it.quantity, 0);
     const summaryItem = cartItems.length === 1 
       ? cartItems[0].model 
@@ -567,14 +536,14 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
       deliveryCity: finalDeliveryCity,
       deliveryState: finalDeliveryState,
       deliveryCep: finalDeliveryCep,
-      items: cartItems, // Snapshot de todos os itens com preços congelados
+      items: cartItems,
       item: summaryItem,
       itemModel: summaryModel,
       subtotal,
       discountPercent: numDiscountPercent,
       discount: calculatedDiscount,
       isFreeShipping,
-      saleValue, // Valor Total Pago: (Subtotal - Valor do Desconto em %) + Frete Cobrado
+      saleValue,
       shippingCharged: numShippingCharged,
       shippingPaid: numShippingPaid,
       productionCost: totalProductionCost,
@@ -598,9 +567,8 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
 
     onAddOrder(newOrder);
 
-    // Reset formulário
     setCartItems([]);
-    setDiscountPercent(0);
+    setDiscountPercent(5);
     setIsFreeShipping(false);
     setShippingCharged(22);
     setShippingPaid(22);
@@ -630,7 +598,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
       aria-modal="true"
     >
       <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-2xl w-full max-h-[94vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-        {/* Modal Header Bar */}
         <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/80">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-600">
@@ -656,7 +623,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
           </button>
         </div>
 
-        {/* Modal Body Form */}
         <form onSubmit={handleSaveOrder} className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-5 text-xs">
           {isViewer && (
             <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-950 flex items-center gap-2.5 text-xs font-medium">
@@ -674,7 +640,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
             </div>
           )}
 
-          {/* CABEÇALHO DO MODAL: DATA DO PEDIDO E NÚMERO INTELIGENTE (LADO A LADO) */}
           <div className="bg-amber-50/40 p-4 rounded-xl border border-amber-200/80 space-y-2">
             <div className="flex items-center justify-between">
               <span className="font-semibold text-slate-800 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
@@ -687,7 +652,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-              {/* Data do Pedido */}
               <div>
                 <label className="block text-slate-700 font-medium mb-1">
                   Data do Pedido *
@@ -709,7 +673,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                 </span>
               </div>
 
-              {/* Número do Pedido */}
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="text-slate-700 font-medium">
@@ -751,7 +714,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
             </div>
           </div>
 
-          {/* SEÇÃO 1: LÓGICA DE CLIENTE */}
           <div className="bg-slate-50/70 p-4 rounded-xl border border-slate-200/80 space-y-3">
             <div className="flex items-center justify-between">
               <span className="font-semibold text-slate-800 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
@@ -763,7 +725,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
               </span>
             </div>
 
-            {/* SELEÇÃO DE CLIENTE EXISTENTE (DROPDOWN ÚNICO) */}
               <div className="space-y-2">
                 <label className="block text-slate-600 font-medium text-xs">
                   Selecionar Cliente Existente *
@@ -813,7 +774,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
               </div>
           </div>
 
-          {/* SEÇÃO 2: ENDEREÇO PARA ENTREGA */}
           <div className="bg-slate-50/70 p-4 rounded-xl border border-slate-200/80 space-y-3">
             <div className="flex items-center justify-between">
               <span className="font-semibold text-slate-800 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
@@ -1002,7 +962,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
             )}
           </div>
 
-          {/* SEÇÃO 3: CARRINHO DE COMPRAS / MÚLTIPLOS ITENS POR PEDIDO */}
           <div className="bg-white p-4 rounded-xl border border-slate-200/90 shadow-2xs space-y-3.5">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
               <div>
@@ -1015,7 +974,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                 </span>
               </div>
 
-              {/* Botão + Adicionar Item ao Pedido */}
               <button
                 type="button"
                 disabled={isViewer}
@@ -1028,7 +986,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
               </button>
             </div>
 
-            {/* BARRA OU ÁREA DE SELEÇÃO DE ITEM (QUANDO ATIVA OU AO CLICAR EM ADICIONAR) */}
             {showItemPicker && (
               <div className="p-3 bg-amber-50/60 rounded-xl border border-amber-200/80 space-y-2.5 animate-in fade-in duration-150">
                 <div className="flex items-center justify-between">
@@ -1046,7 +1003,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-end">
-                  {/* Select Principal: Produto (OptGroup) */}
                   <div className="sm:col-span-5">
                     <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                       Produto Principal *
@@ -1061,7 +1017,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                     />
                   </div>
 
-                  {/* Select Adicional / Extra */}
                   <div className="sm:col-span-4">
                     <label className="block text-[11px] font-semibold text-slate-700 mb-1 flex items-center justify-between">
                       <span>Adicional / Extra</span>
@@ -1086,7 +1041,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                     </select>
                   </div>
 
-                  {/* Quantidade e Botão Incluir (Alinhamento vertical perfeito com selects e labels) */}
                   <div className="sm:col-span-3">
                     <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                       Quantidade & Ação
@@ -1129,7 +1083,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                         + Incluir
                       </button>
 
-                      {/* Botão Cadastrar Novo na hora */}
                       <button
                         type="button"
                         disabled={isViewer}
@@ -1143,7 +1096,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                   </div>
                 </div>
 
-                {/* Campo de Observação / Personalização (Opcional) */}
                 <div className="pt-0.5">
                   <label className="block text-[11px] font-semibold text-slate-700 mb-1 flex items-center justify-between">
                     <span>Observação / Personalização (Opcional)</span>
@@ -1161,7 +1113,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
               </div>
             )}
 
-            {/* TABELA / LISTA DOS ITENS ADICIONADOS AO PEDIDO */}
             {cartItems.length === 0 ? (
               <div className="py-8 px-4 text-center text-slate-500 bg-slate-50/70 rounded-xl border border-dashed border-slate-200">
                 <ShoppingBag className="w-6 h-6 mx-auto mb-2 text-slate-300" />
@@ -1176,7 +1127,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                     key={item.id}
                     className="p-3 bg-white hover:bg-slate-50/70 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs"
                   >
-                    {/* Item info */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="font-mono font-bold text-[10px] px-1.5 py-0.2 rounded bg-slate-100 text-slate-700 border border-slate-200">
@@ -1204,7 +1154,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                       </div>
                     </div>
 
-                    {/* Qty & Total & Remove */}
                     <div className="flex items-center gap-3 shrink-0 self-end sm:self-center">
                       <div className="flex items-center border border-slate-200 bg-slate-50 rounded-lg overflow-hidden">
                         <button
@@ -1254,7 +1203,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
             )}
           </div>
 
-          {/* SEÇÃO 4: 🚚 FRETE (POSICIONADA EXATAMENTE ENTRE O CARRINHO E O RESUMO FINANCEIRO) */}
           <div className="bg-slate-50/80 p-4 rounded-xl border border-slate-200/90 space-y-3.5">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200/70 pb-2.5">
               <div className="flex items-center gap-2">
@@ -1271,7 +1219,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                 </div>
               </div>
 
-              {/* Checkbox / Toggle Frete Grátis */}
               <label className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border transition-all cursor-pointer select-none bg-white border-slate-200 hover:border-amber-400 shadow-2xs">
                 <input
                   type="checkbox"
@@ -1300,7 +1247,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-start">
-              {/* Frete Cobrado (R$) - O que o cliente paga */}
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="block text-slate-700 font-medium text-xs">
@@ -1337,7 +1283,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                 </span>
               </div>
 
-              {/* Frete Cotado (R$) - O custo real da transportadora */}
               <div>
                 <label className="block text-slate-700 font-medium text-xs mb-1">
                   Frete Cotado (R$) *
@@ -1363,7 +1308,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                 </span>
               </div>
 
-              {/* Sobra do Frete (Resultado do Envio) */}
               <div className="bg-white p-3 rounded-xl border border-slate-200/90 shadow-2xs">
                 <span className="text-[10px] uppercase font-bold text-slate-500 block tracking-wider">
                   Sobra do Frete (Cobrado - Cotado)
@@ -1391,7 +1335,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
               </div>
             </div>
 
-            {/* DADOS OPERACIONAIS DE LOGÍSTICA & ENVIO */}
             <div className="pt-3 border-t border-slate-200/80">
               <div className="flex items-center gap-1.5 mb-2.5">
                 <Truck className="w-3.5 h-3.5 text-indigo-600" />
@@ -1401,7 +1344,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-start">
-                {/* Plataforma de Envio */}
                 <div>
                   <label className="block text-slate-700 font-medium text-xs mb-1">
                     Plataforma de Envio *
@@ -1436,7 +1378,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                   </span>
                 </div>
 
-                {/* Transportadora */}
                 <div>
                   <label className="block text-slate-700 font-medium text-xs mb-1">
                     Transportadora *
@@ -1473,7 +1414,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                   </span>
                 </div>
 
-                {/* Código de Rastreio (Opcional) */}
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <label className="block text-slate-700 font-medium text-xs">
@@ -1499,16 +1439,13 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
             </div>
           </div>
 
-          {/* SEÇÃO 5: RESUMO FINANCEIRO DO PEDIDO */}
           <div className="bg-slate-50/80 p-4 rounded-xl border border-slate-200 space-y-3.5">
             <span className="font-semibold text-slate-800 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
               <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
               Resumo Financeiro & Fechamento
             </span>
 
-            {/* Grid dos campos financeiros */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              {/* Subtotal (Calculado automaticamente: Soma dos preços de venda) */}
               <div>
                 <label className="block text-slate-700 font-medium mb-1 text-xs">
                   Subtotal (Itens)
@@ -1528,7 +1465,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                 <span className="text-[10px] text-slate-500 mt-0.5 block">Soma de todos os produtos</span>
               </div>
 
-              {/* Desconto (%) - Porcentagem calculada sobre o Subtotal */}
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="block text-slate-700 font-medium text-xs">
@@ -1563,7 +1499,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                 </span>
               </div>
 
-              {/* Frete Cobrado Resumo */}
               <div>
                 <label className="block text-slate-700 font-medium mb-1 text-xs">
                   Frete Cobrado do Cliente
@@ -1586,9 +1521,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
               </div>
             </div>
 
-            {/* Linha do Valor Total Pago & Forma de Pagamento */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-              {/* Valor Total Pago: (Subtotal de Venda - Valor do Desconto em %) + Frete Cobrado */}
               <div className="bg-amber-100/70 p-3.5 rounded-xl border border-amber-300/80 flex items-center justify-between">
                 <div>
                   <span className="text-[10px] uppercase font-bold text-amber-950 block tracking-wide">
@@ -1605,7 +1538,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                 </div>
               </div>
 
-              {/* Forma de Pagamento */}
               <div>
                 <label className="block text-slate-700 font-medium mb-1 text-xs">
                   Forma de Pagamento *
@@ -1629,7 +1561,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
               </div>
             </div>
 
-            {/* Painel de Rentabilidade ao Vivo */}
             <div className="p-3 bg-white rounded-xl border border-slate-200 text-[11px] text-slate-600 flex flex-wrap items-center justify-between gap-2 shadow-2xs">
               <div className="flex items-center gap-2 flex-wrap">
                 <span>Venda Líq Prod: <strong className="font-mono text-slate-900">{formatBRL(netProductSale)}</strong></span>
@@ -1651,7 +1582,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
             </div>
           </div>
 
-          {/* Rodapé / Ações */}
           <div className="pt-4 border-t border-slate-200 flex items-center justify-end gap-2.5">
             <button
               type="button"
@@ -1679,7 +1609,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
         </form>
       </div>
 
-      {/* MODAL SECUNDÁRIO: CADASTRAR NOVO PRODUTO NA HORA */}
       {isQuickProductModalOpen && (
         <div
           className="fixed inset-0 z-60 bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-4 transition-all"
