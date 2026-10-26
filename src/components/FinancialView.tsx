@@ -55,23 +55,19 @@ interface FinancialViewProps {
   expenses?: Expense[];
 }
 
-// Interfaces e Tipos para o Modal Detalhado
 type DetailCardType = 'venda' | 'ticket' | 'custos' | 'descontos' | 'frete' | 'lucroBruto' | 'devolvidos' | null;
 
 export const FinancialView: React.FC<FinancialViewProps> = ({ orders, onSelectOrder, expenses = [] }) => {
-  // 1. ESTADO DE FILTRO DE MESES
   const [mesesSelecionados, setMesesSelecionados] = useState<string[]>(() => [getCurrentMonthKey()]);
   const currentMonthKey = useMemo(() => getCurrentMonthKey(), []);
   const availableMonthKeys = useMemo(() => getAvailableMonthKeys(orders), [orders]);
 
-  // Controles da tabela detalhada e modais
   const [paymentFilter, setPaymentFilter] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'profit_desc' | 'profit_asc' | 'margin_desc' | 'value_desc'>('profit_desc');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [activeDetailCard, setActiveDetailCard] = useState<DetailCardType>(null);
   const [chartMode, setChartMode] = useState<'auto' | 'day' | 'month'>('auto');
 
-  // Ação de exportação para CSV
   const handleExport = () => {
     setToastMessage('Download do relatório em CSV iniciado...');
     setTimeout(() => setToastMessage(null), 3500);
@@ -123,7 +119,6 @@ export const FinancialView: React.FC<FinancialViewProps> = ({ orders, onSelectOr
   }, [mesesSelecionados, currentMonthKey]);
   const isAllMonthsSelected = availableMonthKeys.length > 0 && availableMonthKeys.every((k) => mesesSelecionados.includes(k));
 
-  // 2. FILTRAGEM DOS PEDIDOS E CÁLCULOS
   const monthFilteredOrders = useMemo(() => {
     if (mesesSelecionados.length === 0) return [];
     return orders.filter((order) => {
@@ -138,7 +133,6 @@ export const FinancialView: React.FC<FinancialViewProps> = ({ orders, onSelectOr
   const totalVendaBruta = useMemo(() => monthFilteredOrders.reduce((acc, o) => acc + o.saleValue, 0), [monthFilteredOrders]);
   const ticketMedio = totalPedidos > 0 ? totalVendaBruta / totalPedidos : 0;
   
-  // Detalhamento de Custos Operacionais
   const totalCustoProducao = useMemo(() => monthFilteredOrders.reduce((acc, o) => acc + (o.productionCost || 0), 0), [monthFilteredOrders]);
   const totalFreteCotado = useMemo(() => monthFilteredOrders.reduce((acc, o) => acc + (o.shippingPaid || 0), 0), [monthFilteredOrders]);
   const totalFreteCobrado = useMemo(() => monthFilteredOrders.reduce((acc, o) => acc + (o.shippingCharged || 0), 0), [monthFilteredOrders]);
@@ -161,7 +155,6 @@ export const FinancialView: React.FC<FinancialViewProps> = ({ orders, onSelectOr
   const valoresDevolvidos = useMemo(() => monthFilteredOrders.filter((o) => o.estornado === true).reduce((acc, o) => acc + (o.saleValue || 0), 0), [monthFilteredOrders]);
   const pedidosEstornadosCount = useMemo(() => monthFilteredOrders.filter((o) => o.estornado === true || o.status === 'cancelado_estornado').length, [monthFilteredOrders]);
 
-  // Despesas Operacionais
   const monthFilteredExpenses = useMemo(() => {
     if (!expenses || expenses.length === 0) return [];
     return expenses.filter((e) => {
@@ -176,9 +169,7 @@ export const FinancialView: React.FC<FinancialViewProps> = ({ orders, onSelectOr
 
   const lucroLiquidoReal = useMemo(() => lucroBrutoMargem - totalDespesasGerais, [lucroBrutoMargem, totalDespesasGerais]);
   const totalLucroReal = lucroBrutoMargem;
-  const margemLucroGeral = margemLucroBruto;
 
-  // 4. PREPARAÇÃO DOS DADOS DO GRÁFICO
   const activeGranularity = useMemo(() => {
     if (chartMode === 'auto') return mesesSelecionados.length <= 1 ? 'day' : 'month';
     return chartMode;
@@ -281,9 +272,6 @@ export const FinancialView: React.FC<FinancialViewProps> = ({ orders, onSelectOr
     return null;
   };
 
-  // -------------------------------------------------------------
-  // RENDERIZAÇÃO DO MODAL DE DETALHES DE MEMÓRIA DE CÁLCULO
-  // -------------------------------------------------------------
   const renderDetailModal = () => {
     if (!activeDetailCard) return null;
 
@@ -333,12 +321,12 @@ export const FinancialView: React.FC<FinancialViewProps> = ({ orders, onSelectOr
             <span className="text-rose-600 font-medium">{formatBRL(totalCustoProducao)}</span>
           </div>
           <div className="flex justify-between items-center py-1.5 border-b border-slate-100">
-            <span className="text-slate-500 font-sans">Custo do Frete Pago à Transportadora</span>
+            <span className="text-slate-500 font-sans">Frete Pago à Transportadora</span>
             <span className="text-rose-600 font-medium">{formatBRL(totalFreteCotado)}</span>
           </div>
           <div className="flex justify-between items-center py-1.5 border-b border-slate-100">
             <span className="text-slate-500 font-sans flex items-center gap-1.5">
-              Taxas Gateway <CreditCard className="w-3.5 h-3.5" />
+              Taxas de Gateway <CreditCard className="w-3.5 h-3.5" />
             </span>
             <span className="text-rose-600 font-medium">{formatBRL(totalTaxasGateway)}</span>
           </div>
@@ -354,18 +342,26 @@ export const FinancialView: React.FC<FinancialViewProps> = ({ orders, onSelectOr
       content = (
         <div className="space-y-3 font-mono text-xs">
           <div className="flex justify-between items-center py-1.5 border-b border-slate-100">
-            <span className="text-slate-500 font-sans">Receita Líquida (Venda - Descontos - Taxas)</span>
-            <span className="text-slate-700 font-medium">{formatBRL(totalVendaBruta - totalDescontos - totalTaxasGateway)}</span>
+            <span className="text-slate-500 font-sans">Venda Bruta (Total Pago pelo Cliente)</span>
+            <span className="text-slate-700 font-medium">+{formatBRL(totalVendaBruta)}</span>
+          </div>
+          {totalDescontos > 0 && (
+            <div className="flex justify-between items-center py-1.5 border-b border-slate-100">
+              <span className="text-slate-500 font-sans">Descontos Concedidos</span>
+              <span className="text-rose-600 font-medium">-{formatBRL(totalDescontos)}</span>
+            </div>
+          )}
+          <div className="flex justify-between items-center py-1.5 border-b border-slate-100">
+            <span className="text-slate-500 font-sans">Taxas de Gateway (Operadora)</span>
+            <span className="text-rose-600 font-medium">-{formatBRL(totalTaxasGateway)}</span>
           </div>
           <div className="flex justify-between items-center py-1.5 border-b border-slate-100">
             <span className="text-slate-500 font-sans">Custo Total de Produção</span>
             <span className="text-rose-600 font-medium">-{formatBRL(totalCustoProducao)}</span>
           </div>
           <div className="flex justify-between items-center py-1.5 border-b border-slate-100">
-            <span className="text-slate-500 font-sans">Resultado do Frete (Sobra)</span>
-            <span className={sobraFrete >= 0 ? 'text-emerald-600 font-medium' : 'text-rose-600 font-medium'}>
-              {sobraFrete >= 0 ? `+${formatBRL(sobraFrete)}` : `-${formatBRL(Math.abs(sobraFrete))}`}
-            </span>
+            <span className="text-slate-500 font-sans">Custo do Frete Pago</span>
+            <span className="text-rose-600 font-medium">-{formatBRL(totalFreteCotado)}</span>
           </div>
         </div>
       );
