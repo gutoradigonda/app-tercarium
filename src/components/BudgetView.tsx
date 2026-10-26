@@ -355,10 +355,15 @@ export const BudgetView: React.FC<BudgetViewProps> = ({
 
   const budgetText = useMemo(() => {
     const greeting = leadName.trim() ? `Olá, ${leadName.trim()}, segue o resumo do seu orçamento:` : `Olá, segue o resumo do seu orçamento:`;
+    
     const itemsLines = items.map((it) => {
-      const prefix = it.quantity > 1 ? `${it.quantity}x ` : '';
+      const prefix = `${it.quantity}x `;
       const obsText = it.observacao ? ` (${it.observacao})` : '';
-      return `${prefix}${it.name}${obsText} R$ ${formatCurrencyValue(it.totalPrice)}`;
+      
+      if (it.quantity > 1) {
+        return `${prefix}${it.name}${obsText} (R$ ${formatCurrencyValue(it.unitPrice)}/un) = R$ ${formatCurrencyValue(it.totalPrice)}`;
+      }
+      return `${prefix}${it.name}${obsText} = R$ ${formatCurrencyValue(it.totalPrice)}`;
     });
 
     const effectiveCarrier = selectedShippingOption === 'Outra' ? (customShippingOption.trim() || 'Outra') : selectedShippingOption;
