@@ -5,6 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { ShieldAlert } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { 
   Order, 
   OrderStatus, 
@@ -125,7 +126,6 @@ export default function App() {
           const stateVal = matchedClient?.state || o.client_state || o.clientState || 'PR';
           const clientNameVal = matchedClient?.name || o.client_name || 'Cliente';
           
-          // Mapeamento correto dos endereços do cliente
           const addressVal = matchedClient?.address || o.client_address || o.clientAddress || '';
           const cepVal = matchedClient?.cep || o.client_cep || o.clientCep || '';
           const phoneVal = matchedClient?.phone || o.client_phone || o.clientPhone || '';
@@ -207,6 +207,92 @@ export default function App() {
       return false;
     }
     return true;
+  };
+
+  // FUNÇÃO DE BACKUP GERAL (MÚLTIPLAS ABAS NO EXCEL)
+  const handleBackupGeral = () => {
+    // 1. Aba de Clientes
+    const clientesData = clients.map((c: any) => ({
+      'ID Cliente': c.id || '',
+      'Nome': c.name || '',
+      'CPF/CNPJ': c.cpf || '',
+      'Telefone': c.phone || '',
+      'E-mail': c.email || '',
+      'Endereço': c.address || '',
+      'Cidade': c.city || '',
+      'UF': c.state || '',
+      'Data Cadastro': c.createdAt || ''
+    }));
+
+    // 2. Aba de Pedidos Completa
+    const pedidosData = orders.map((o: any) => {
+      const itensFormatados = o.items && o.items.length > 0
+        ? o.items.map((i: any) => `${i.quantity || 1}x ${i.model || ''} (Cód: ${i.code || ''})${i.observacao ? ` [Obs: ${i.observacao}]` : ''}`).join(' | ')
+        : `${o.item || ''} - ${o.itemModel || ''}`;
+
+      return {
+        'Pedido Interno': o.id || '',
+        'Pedido Cliente': o.codigoCliente || '',
+        'Data': o.createdAt || '',
+        'Cliente': o.clientName || '',
+        'CPF': o.clientCpf || '',
+        'Telefone': o.clientPhone || '',
+        'E-mail': o.clientEmail || '',
+        'Endereço': o.clientAddress || '',
+        'Cidade': o.clientCity || '',
+        'UF': o.clientState || '',
+        'Itens do Pedido': itensFormatados,
+        'Valor Venda (R$)': Number(o.saleValue || 0),
+        'Frete Cobrado (R$)': Number(o.shippingCharged || 0),
+        'Frete Cotado (R$)': Number(o.shippingPaid || 0),
+        'Forma de Pagto': o.paymentMethod || '',
+        'Status Operacional': o.status || ''
+      };
+    });
+
+    // 3. Aba de Logística
+    const logisticaData = orders.map((o: any) => ({
+      'Pedido Interno': o.id || '',
+      'Cliente': o.clientName || '',
+      'Cidade / UF': `${o.clientCity || ''}/${o.clientState || ''}`,
+      'Transportadora': o.carrier || '',
+      'Plataforma Frete': o.shippingPlatform || '',
+      'Frete Cobrado (Cliente)': Number(o.shippingCharged || 0),
+      'Frete Pago (Custo Real)': Number(o.shippingPaid || 0),
+      'Status de Envio': o.status || ''
+    }));
+
+    // 4. Aba de Financeiro
+    const financeiroData = orders.map((o: any) => ({
+      'Data': o.createdAt || '',
+      'Pedido': o.id || '',
+      'Cliente': o.clientName || '',
+      'Forma de Pagamento': o.paymentMethod || '',
+      'Status Pagamento': o.paymentStatus || 'pago',
+      'Valor Bruto (R$)': Number(o.saleValue || 0),
+      'Valor Líquido Produtos (R$)': Number(o.subtotal || o.saleValue || 0)
+    }));
+
+    // 5. Aba de Despesas
+    const despesasData = expenses.map((e: any) => ({
+      'ID Despesa': e.id || '',
+      'Data': e.date || '',
+      'Descrição': e.description || '',
+      'Categoria': e.category || '',
+      'Valor (R$)': Number(e.amount || 0),
+      'Status': e.status || 'pendente'
+    }));
+
+    // Cria o Livro e Adiciona as Abas
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(clientesData), 'Clientes');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(pedidosData), 'Pedidos');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(logisticaData), 'Logística');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(financeiroData), 'Financeiro');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(despesasData), 'Despesas');
+
+    const dataAtual = new Date().toISOString().split('T')[0];
+    XLSX.writeFile(wb, `Backup_Geral_Tercarium_${dataAtual}.xlsx`);
   };
 
   const handleStatusChange = async (orderId: string, newStatus: OrderStatus) => {
@@ -668,6 +754,15 @@ export default function App() {
     }
   };
 
+  // Intercepta a seleção da aba de Backup Geral para disparar direto o download do excel
+  const handleSelectTab = (tab: TabType) => {
+    if (tab === 'backup-geral') {
+      handleBackupGeral();
+      return;
+    }
+    setCurrentTab(tab);
+  };
+
   if (!isAuthenticated) {
     return (
       <LoginView
@@ -773,7 +868,7 @@ export default function App() {
     <div className="min-h-screen bg-slate-50 flex">
       <Sidebar
         currentTab={currentTab}
-        onSelectTab={setCurrentTab}
+        onSelectTab={handleSelectTab}
         orders={orders}
         clients={clients}
         products={products}
